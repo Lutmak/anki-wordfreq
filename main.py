@@ -8,6 +8,9 @@ import hashlib
 import webbrowser
 import tempfile
 import json
+import html
+from collections import defaultdict
+from functools import lru_cache
 
 try:
     import requests
@@ -15,9 +18,16 @@ try:
     from wordfreq import top_n_list
     from dotenv import load_dotenv
     from tatoebatools import ParallelCorpus
-    from gtts import gTTS
+    import pymorphy3
+    from kaikki_lookup import (
+        get_language_dictionary,
+        load_dictionary,
+        get_english_meanings,
+    )
 except ImportError as e:
-    print(f"Missing: {e}\nRun: pip install wordfreq genanki requests python-dotenv tatoebatools gTTS")
+    print(
+        f"Missing: {e}\nRun: pip install wordfreq genanki requests python-dotenv tatoebatools pymorphy3"
+    )
     sys.exit(1)
 
 load_dotenv()
@@ -28,270 +38,805 @@ load_dotenv()
 DEEPL_KEY = os.getenv("DEEPL_API_KEY")
 SOURCE = "ru"
 TARGETS = ["en", "es"]
-NUM_WORDS = 10
+NUM_WORDS = 500
 NUM_EXAMPLES = 2
-GENERATE_AUDIO = True
+AUDIO_DIR = "audio"
+
+HTTP_HEADERS = {
+    "User-Agent": "FreqAnki/1.0 (Language Learning Deck Generator; https://github.com/Lutmak/anki-wordfreq)"
+}
 # =============================================================================
 
 # Tatoeba language code mapping
 TATOEBA_CODES = {
-    'en': 'eng', 'es': 'spa', 'fr': 'fra', 'de': 'deu', 'it': 'ita',
-    'pt': 'por', 'ru': 'rus', 'ja': 'jpn', 'zh': 'cmn', 'ko': 'kor'
+    "en": "eng",
+    "es": "spa",
+    "fr": "fra",
+    "de": "deu",
+    "it": "ita",
+    "pt": "por",
+    "ru": "rus",
+    "ja": "jpn",
+    "zh": "cmn",
+    "ko": "kor",
 }
 
 # Wiktionary language mapping
 WIKTIONARY_LANG_NAMES = {
-    'ru': 'Russian', 'en': 'English', 'es': 'Spanish', 'fr': 'French',
-    'de': 'German', 'it': 'Italian', 'pt': 'Portuguese', 'zh': 'Chinese',
-    'ja': 'Japanese', 'ko': 'Korean', 'ar': 'Arabic', 'hi': 'Hindi',
-    'nl': 'Dutch', 'sv': 'Swedish', 'pl': 'Polish', 'tr': 'Turkish'
+    "ru": "Russian",
+    "en": "English",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "it": "Italian",
+    "ar": "Arabic",
+    "pl": "Polish",
+    "tr": "Turkish",
+    "ja": "Japanese",
+    "zh": "Chinese",
+    "ko": "Korean",
+    "pt": "Portuguese",
 }
 
-def get_wiktionary_translation(word, source_lang, target_lang='en'):
+CYRILLIC_PATTERN = re.compile(r"[А-Яа-яЁё]")
+DIGIT_PATTERN = re.compile(r"^\d+$")
+RUS_NUMBER_WORDS = {
+    "0": "ноль",
+    "1": "один",
+    "2": "два",
+    "3": "три",
+    "4": "четыре",
+    "5": "пять",
+    "6": "шесть",
+    "7": "семь",
+    "8": "восемь",
+    "9": "девять",
+}
+SPECIAL_CANONICAL_MAP = {
+    "млн": "миллион",
+    "тыс": "тысяча",
+}
+KAIKKI_SKIP_WORDS = {"нибудь", "нибыть"}
+
+
+def is_numeric_token(token):
+    return bool(DIGIT_PATTERN.fullmatch(token or ""))
+
+
+def is_allowed_token(token):
+    text = (token or "").strip()
+    if not text:
+        return False
+    if is_numeric_token(text):
+        return True
+    return bool(CYRILLIC_PATTERN.search(text))
+
+
+def get_frequency_words(source_lang, desired_count, oversample_factor=4):
+    if desired_count <= 0:
+        return []
+
+    oversample = max(desired_count * oversample_factor, desired_count + 200)
+    max_oversample = max(desired_count * 10, oversample)
+
+    while True:
+        raw_words = top_n_list(source_lang, oversample)
+        filtered = []
+        skipped_count = 0
+        skipped_samples = []
+        seen = set()
+
+        for token in raw_words:
+            normalized = token.strip()
+            if not normalized or normalized in seen:
+                continue
+
+            if not is_allowed_token(normalized):
+                skipped_count += 1
+                if len(skipped_samples) < 5 and normalized not in skipped_samples:
+                    skipped_samples.append(normalized)
+                continue
+
+            filtered.append(normalized)
+            seen.add(normalized)
+            if len(filtered) >= desired_count:
+                break
+
+        if len(filtered) >= desired_count or oversample >= max_oversample:
+            if skipped_count:
+                sample_msg = ", ".join(skipped_samples)
+                print(
+                    f"ℹ️ Filtered out {skipped_count} non-Russian tokens from the frequency list"
+                    + (f" (e.g., {sample_msg})" if sample_msg else "")
+                )
+            if len(filtered) < desired_count:
+                print(
+                    f"⚠️ Only {len(filtered)} usable words found out of requested {desired_count}."
+                )
+            return filtered[:desired_count]
+
+        oversample = min(oversample * 2, max_oversample)
+
+
+# Morphological analysis mappings
+CASE_NAMES = {
+    "nomn": "Nominative",
+    "gent": "Genitive",
+    "datv": "Dative",
+    "accs": "Accusative",
+    "ablt": "Instrumental",
+    "loct": "Prepositional",
+}
+
+GENDER_NAMES = {"masc": "Masculine", "femn": "Feminine", "neut": "Neuter"}
+
+NUMBER_NAMES = {"sing": "Singular", "plur": "Plural"}
+
+POS_NAMES = {
+    "NOUN": "Noun",
+    "VERB": "Verb",
+    "ADJF": "Adjective",
+    "ADJS": "Short Adjective",
+    "ADVB": "Adverb",
+    "PREP": "Preposition",
+    "CONJ": "Conjunction",
+    "PRCL": "Particle",
+    "NPRO": "Pronoun",
+    "NUMR": "Numeral",
+    "INFN": "Infinitive",
+}
+
+ANIMACY_NAMES = {"anim": "Animate", "inan": "Inanimate"}
+
+ASPECT_NAMES = {"perf": "Perfective", "impf": "Imperfective"}
+
+TENSE_NAMES = {"past": "Past", "pres": "Present", "futr": "Future"}
+
+PERSON_NAMES = {"1per": "First Person", "2per": "Second Person", "3per": "Third Person"}
+
+MOOD_NAMES = {"indc": "Indicative", "impr": "Imperative"}
+
+
+def sanitize_filename(text):
+    safe = re.sub(r"[^A-Za-z0-9_-]+", "_", text)
+    return safe.strip("_") or "audio"
+
+
+def fetch_wikimedia_audio(entry, word):
+    """Download audio from Wiktextract sounds metadata if available."""
+    sounds = entry.get("sounds") or []
+    for sound in sounds:
+        url = sound.get("mp3_url") or sound.get("ogg_url")
+        if not url:
+            continue
+
+        ext = ".mp3" if url.lower().endswith(".mp3") else ".ogg"
+        os.makedirs(AUDIO_DIR, exist_ok=True)
+        filename = (
+            f"{sanitize_filename(word)}_{hashlib.md5(url.encode()).hexdigest()}{ext}"
+        )
+        path = os.path.join(AUDIO_DIR, filename)
+
+        if not os.path.exists(path):
+            try:
+                resp = requests.get(url, headers=HTTP_HEADERS, timeout=60)
+                resp.raise_for_status()
+                with open(path, "wb") as handle:
+                    handle.write(resp.content)
+            except Exception as exc:  # noqa: BLE001
+                print(f"Audio download failed for '{word}': {exc}")
+                return None
+        return path
+    return None
+
+
+def load_kaikki_entries(words, source_lang):
+    """Load Kaikki entries for the requested words (best effort)."""
+    unique = [w for w in dict.fromkeys(words) if w not in KAIKKI_SKIP_WORDS]
+    try:
+        dictionary_path = get_language_dictionary(source_lang)
+        entries = load_dictionary(
+            dictionary_path,
+            unique,
+            lang_code=source_lang,
+            stop_when_all_found=True,
+        )
+
+        grouped = defaultdict(list)
+        for entry in entries:
+            key = entry.get("word", "").lower()
+            if key:
+                grouped[key].append(entry)
+        return grouped
+    except Exception as exc:  # noqa: BLE001
+        print(f"\nKaikki lookup unavailable: {exc}")
+        return {}
+
+
+def get_audio_for_word(word, grouped_entries):
+    entries = grouped_entries.get(word.lower()) if grouped_entries else None
+    if not entries:
+        return None
+    for entry in entries:
+        audio_path = fetch_wikimedia_audio(entry, word)
+        if audio_path:
+            return audio_path
+    return None
+
+
+def extract_romanization(entry):
+    """Extract romanization from Kaikki entry if available."""
+    for form in entry.get("forms", []) or []:
+        tags = form.get("tags") or []
+        if "romanization" in tags and form.get("form"):
+            return form["form"]
+
+    for template in entry.get("head_templates", []) or []:
+        expansion = template.get("expansion") or ""
+        match = re.search(r"\(([^)]+)\)", expansion)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def get_romanization_for_word(word, grouped_entries):
+    entries = grouped_entries.get(word.lower()) if grouped_entries else None
+    if not entries:
+        return ""
+    for entry in entries:
+        roman = extract_romanization(entry)
+        if roman:
+            return roman
+    return ""
+
+
+def get_kaikki_glosses(word, grouped_entries, limit=3):
+    """Return up to `limit` English meanings from Kaikki entries for a word."""
+
+    entries = grouped_entries.get(word.lower()) if grouped_entries else None
+    if not entries:
+        return []
+
+    meanings = []
+    seen_lower = set()
+
+    for entry in entries:
+        senses = entry.get("senses", []) or []
+        for sense in senses:
+            for meaning in get_english_meanings(sense):
+                clean = meaning.strip()
+                if not clean:
+                    continue
+                lower = clean.lower()
+                if lower in seen_lower:
+                    continue
+                meanings.append(clean)
+                seen_lower.add(lower)
+                if len(meanings) >= limit:
+                    return meanings
+
+    return meanings
+
+
+_MORPH_ANALYZER = None
+
+
+def _get_morph_analyzer():
+    """Lazily instantiate and reuse the heavy pymorphy3 analyzer."""
+    global _MORPH_ANALYZER
+    if _MORPH_ANALYZER is None:
+        _MORPH_ANALYZER = pymorphy3.MorphAnalyzer()
+    return _MORPH_ANALYZER
+
+
+@lru_cache(maxsize=4096)
+def get_morphological_info(word, source_lang):
     """
-    Get translation from Wiktionary for single-character words.
-    Returns the first translation found, or None if not found.
+    Extract complete morphological information for a word.
+
+    Args:
+        word: The word to analyze
+        source_lang: Language code (e.g., 'ru', 'es')
+
+    Returns:
+        Dictionary with grammatical info, or None if language not supported
+    """
+    # Only support Russian for now
+    if source_lang != "ru":
+        return None
+
+    try:
+        morph = _get_morph_analyzer()
+        parsed = morph.parse(word)[0]
+
+        # Extract all grammatical features
+        info = {
+            "lemma": parsed.normal_form,
+            "part_of_speech": POS_NAMES.get(str(parsed.tag.POS), str(parsed.tag.POS))
+            if parsed.tag.POS
+            else None,
+            # "part_of_speech": POS_NAMES.get(str(parsed.tag.POS), str(parsed.tag.POS))
+            # if parsed.tag.POS
+            # else None,
+            "case": CASE_NAMES.get(str(parsed.tag.case)) if parsed.tag.case else None,
+            "gender": GENDER_NAMES.get(str(parsed.tag.gender))
+            if parsed.tag.gender
+            else None,
+            "number": NUMBER_NAMES.get(str(parsed.tag.number))
+            if parsed.tag.number
+            else None,
+            "animacy": ANIMACY_NAMES.get(str(parsed.tag.animacy))
+            if parsed.tag.animacy
+            else None,
+            "aspect": ASPECT_NAMES.get(str(parsed.tag.aspect))
+            if parsed.tag.aspect
+            else None,
+            "tense": TENSE_NAMES.get(str(parsed.tag.tense))
+            if parsed.tag.tense
+            else None,
+            "person": PERSON_NAMES.get(str(parsed.tag.person))
+            if parsed.tag.person
+            else None,
+            "mood": MOOD_NAMES.get(str(parsed.tag.mood)) if parsed.tag.mood else None,
+        }
+
+        return info
+
+    except Exception as e:
+        print(f"\nMorphological analysis error for '{word}': {e}")
+        return None
+
+
+def canonicalize_word(word, source_lang=SOURCE):
+    """Return the lemma or special expansion used for lookups."""
+
+    if not word:
+        return word
+
+    normalized = word.strip()
+    if is_numeric_token(normalized):
+        return RUS_NUMBER_WORDS.get(normalized, normalized)
+
+    lower = normalized.lower()
+    if lower in SPECIAL_CANONICAL_MAP:
+        return SPECIAL_CANONICAL_MAP[lower]
+
+    if source_lang == "ru":
+        morph = get_morphological_info(normalized, source_lang)
+        if morph and morph.get("lemma"):
+            return morph["lemma"]
+
+    return normalized
+
+
+def build_display_word(source_word, canonical_word):
+    if source_word == canonical_word:
+        return source_word
+
+    lower = (source_word or "").strip().lower()
+    if is_numeric_token(source_word) or lower in SPECIAL_CANONICAL_MAP:
+        return f"{source_word} · {canonical_word}"
+
+    return source_word
+
+
+def get_wiktionary_translation(word, source_lang, target_lang="en"):
+    """
+    Get up to three translations from Wiktionary for fallback scenarios.
+    Returns a list of up to three translations (empty if nothing found).
     """
     source_name = WIKTIONARY_LANG_NAMES.get(source_lang, source_lang.capitalize())
-    
+
     url = "https://en.wiktionary.org/w/api.php"
-    params = {
-        'action': 'parse',
-        'page': word,
-        'prop': 'wikitext',
-        'format': 'json'
-    }
-    
+    params = {"action": "parse", "page": word, "prop": "wikitext", "format": "json"}
+
     # CRITICAL: Wikimedia APIs require a User-Agent header
-    headers = {
-        'User-Agent': 'FreqAnki/1.0 (Language Learning Deck Generator; https://github.com/yourusername/freqanki)'
-    }
-    
+    headers = HTTP_HEADERS
+
     try:
         r = requests.get(url, params=params, headers=headers, timeout=10)
         data = r.json()
-        
-        if 'error' in data:
-            return None
-        
-        wikitext = data['parse']['wikitext']['*']
-        
+
+        if "error" in data:
+            return []
+
+        wikitext = data["parse"]["wikitext"]["*"]
+
         # Find the source language section (e.g., ==Russian==)
-        lang_marker = f'=={source_name}=='
+        lang_marker = f"=={source_name}=="
         if lang_marker not in wikitext:
-            return None
-        
+            return []
+
         # Extract just the source language section
         lang_start = wikitext.find(lang_marker)
-        rest = wikitext[lang_start + len(lang_marker):]
-        
+        rest = wikitext[lang_start + len(lang_marker) :]
+
         # Find next top-level language section (==Language==)
-        next_lang_match = re.search(r'\n==[^=]', rest)
+        next_lang_match = re.search(r"\n==[^=]", rest)
         if next_lang_match:
-            lang_section = rest[:next_lang_match.start()]
+            lang_section = rest[: next_lang_match.start()]
         else:
             lang_section = rest
-        
+
         # Extract translations from definition lines
         translations = []
-        
+
         # Pattern: [[word]] or [[word#Type|word]]
-        wikilink_pattern = re.compile(r'\[\[([^|#\]]+)(?:#[^|\]]+)?(?:\|([^\]]+))?\]\]')
-        
+        wikilink_pattern = re.compile(r"\[\[([^|#\]]+)(?:#[^|\]]+)?(?:\|([^\]]+))?\]\]")
+
         # Track current part-of-speech to avoid unrelated senses
         current_pos = None
         allowed_pos = {
-            'noun', 'proper noun', 'verb', 'adjective', 'adverb',
-            'pronoun', 'preposition', 'postposition', 'conjunction',
-            'particle', 'interjection', 'numeral', 'determiner',
-            'phrase', 'idiom', 'proverb', 'expression'
+            "noun",
+            "proper noun",
+            "verb",
+            "adjective",
+            "adverb",
+            "pronoun",
+            "preposition",
+            "postposition",
+            "conjunction",
+            "particle",
+            "interjection",
+            "numeral",
+            "determiner",
+            "phrase",
+            "idiom",
+            "proverb",
+            "expression",
         }
-        
+
         for raw_line in lang_section.splitlines():
             line = raw_line.strip()
-            
+
             # Track section headings (====Preposition====)
-            heading_match = re.match(r'^={4}([^=]+)={4}$', line)
+            heading_match = re.match(r"^={4}([^=]+)={4}$", line)
             if heading_match:
                 current_pos = heading_match.group(1).strip().lower()
                 continue
-            
+
             # Only process definition lines (#)
-            if not line.startswith('#'):
+            if not line.startswith("#"):
                 continue
-            if len(line) > 1 and line[1] in ':*;-=^':
+            if len(line) > 1 and line[1] in ":*;-=^":
                 continue
-            
+
             # Skip if we're in a non-word section
             if current_pos and current_pos not in allowed_pos:
                 continue
-            
+
             # Extract wikilinks from this line
             for match in wikilink_pattern.finditer(line):
                 link_target = match.group(1)
                 display_text = match.group(2) if match.group(2) else link_target
                 translation = display_text.strip()
-                
-                # Filter: must be lowercase and reasonable length
-                if not translation or len(translation) > 20:
+
+                # Filter: must be alphabetic and reasonable length
+                if not translation or len(translation) > 30:
                     continue
-                if not re.match(r'^[a-z\s\-]+$', translation):
+                if not re.match(r"^[A-Za-z\s\-']+$", translation):
                     continue
-                
+
                 if translation not in translations:
                     translations.append(translation)
-        
+
         # Return first translation or None
-        return translations[0] if translations else None
-        
+        return translations[:3]
+
     except Exception as e:
         print(f"\nWiktionary error for '{word}': {e}")
-        return None
+        return []
+
 
 def get_usage_examples(word, source_lang, count=3):
     """Get short usage examples for a word from Tatoeba (for context)"""
     try:
         src = TATOEBA_CODES.get(source_lang, source_lang)
-        corpus = ParallelCorpus(src, 'eng')  # Just need source sentences
-        
-        pattern = re.compile(r'\b' + re.escape(word) + r'\b', re.IGNORECASE)
+        corpus = ParallelCorpus(src, "eng")  # Just need source sentences
+
+        pattern = re.compile(r"\b" + re.escape(word) + r"\b", re.IGNORECASE)
         examples = []
-        
+
         for sentence, _ in corpus:
             if pattern.search(sentence.text):
                 examples.append(sentence.text)
                 if len(examples) >= count:
                     break
-        
+
         return examples
-    except:
+    except Exception:
         return []
 
-def batch_translate(words, source, target, key):
-    """
-    Translate multiple words in one API call using DeepL.
-    For single-character words, uses Wiktionary fallback instead.
-    """
-    if not key:
-        raise ValueError("DEEPL_API_KEY not found in .env file")
-    
-    # Separate single-char from multi-char words
-    single_char_words = [(i, w) for i, w in enumerate(words) if len(w) == 1]
-    multi_char_words = [(i, w) for i, w in enumerate(words) if len(w) > 1]
-    
-    # Initialize results array
-    results = [None] * len(words)
-    
-    # Process single-char words with Wiktionary
-    if single_char_words:
-        print(f"    Using Wiktionary for {len(single_char_words)} single-char word(s)...", end=' ')
-        for idx, word in single_char_words:
-            translation = get_wiktionary_translation(word, source, target)
-            results[idx] = translation if translation else word  # Fallback to original if not found
-        print("✓")
-    
-    # Process multi-char words with DeepL batch translation
-    if multi_char_words:
-        multi_indices = [idx for idx, _ in multi_char_words]
-        multi_words = [w for _, w in multi_char_words]
-        
-        # Build context for multi-char words
-        context_parts = []
-        for word in multi_words[:8]:
-            context_parts.append(f"{word}.")
-        context = " ".join(context_parts) if context_parts else f"Common {source.upper()} words."
-        
-        payload = {
-            "text": multi_words,
-            "source_lang": source.upper(),
-            "target_lang": target.upper(),
-            "context": context
-        }
-        
-        try:
-            r = requests.post(
-                "https://api-free.deepl.com/v2/translate",
-                headers={"Authorization": f"DeepL-Auth-Key {key}"},
-                json=payload,
-                timeout=30
-            )
-            r.raise_for_status()
-            translations = [t["text"] for t in r.json()["translations"]]
-            
-            # Map translations back to original indices
-            for i, trans in zip(multi_indices, translations):
-                results[i] = trans
-                
-        except Exception as e:
-            print(f"\nDeepL API error: {e}")
-            # Fallback: keep original words
-            for idx in multi_indices:
-                if results[idx] is None:
-                    results[idx] = words[idx]
-    
-    return results
 
-def get_examples(word, source_lang, target_lang, max_examples=2):
-    """Get example sentences from Tatoeba - matches whole word only"""
-    examples = []
+def batch_translate(words, source, target, key, fallback_entries=None):
+    """
+    Translate multiple words by collecting up to three English glosses from
+    Wiktionary (with Kaikki fallback), then optionally translating those glosses to the target
+    language via DeepL.
+    """
+    target_is_en = target.lower() == "en"
+    if not target_is_en and not key:
+        raise ValueError("DEEPL_API_KEY not found in .env file")
+
+    print(f"    Using Wiktionary for {len(words)} gloss(es)...", end=" ")
+    en_glosses = []
+    for word in words:
+        en_candidates = get_wiktionary_translation(word, source, "en")
+        if not en_candidates and fallback_entries:
+            en_candidates = get_kaikki_glosses(word, fallback_entries)
+        if not en_candidates:
+            en_candidates = [word]
+        en_glosses.append(", ".join(en_candidates[:3]))
+    print("✓")
+
+    if target_is_en:
+        return en_glosses
+
+    print(f"    Translating glosses to {target.upper()} via DeepL...", end=" ")
+    try:
+        payload = {
+            "text": en_glosses,
+            "source_lang": "EN",
+            "target_lang": target.upper(),
+        }
+        r = requests.post(
+            "https://api-free.deepl.com/v2/translate",
+            headers={"Authorization": f"DeepL-Auth-Key {key}"},
+            json=payload,
+            timeout=30,
+        )
+        r.raise_for_status()
+        translations = [t["text"] for t in r.json().get("translations", [])]
+
+        if len(translations) < len(en_glosses):
+            translations.extend(en_glosses[len(translations) :])
+
+        print("✓")
+        return translations
+
+    except Exception as e:
+        print(f"\nDeepL API error: {e}")
+        return en_glosses
+
+
+def report_identity_translations(source_words, translations_map, labels=None):
+    """Log how many outputs exactly match the source word for each language."""
+
+    if not source_words or not translations_map:
+        return
+
+    print("\n🔍 Checking for untranslated entries...")
+    for lang, translations in translations_map.items():
+        if not translations:
+            print(f"  {lang.upper()}: no translations available")
+            continue
+
+        matches = []
+        limit = min(len(source_words), len(translations))
+        for idx in range(limit):
+            baseline = source_words[idx]
+            label = labels[idx] if labels else baseline
+            translation = translations[idx]
+            if not translation:
+                continue
+
+            if translation.strip().lower() == baseline.strip().lower():
+                matches.append(label)
+
+        if matches:
+            sample = ", ".join(matches[:10])
+            print(
+                f"  {lang.upper()}: {len(matches)} words identical to source (e.g., {sample})"
+            )
+        else:
+            print(f"  {lang.upper()}: ✅ all translations differ from the source word")
+
+
+def collect_examples_for_words(
+    words, source_lang, target_lang, max_examples=2, canonical_map=None
+):
+    """Fetch usage examples for multiple words in a single pass over Tatoeba."""
+
+    if max_examples <= 0 or not words:
+        return {word: [] for word in words}
+
+    lookup_words = [
+        canonical_map[word] if canonical_map and word in canonical_map else word
+        for word in words
+    ]
+    unique_words = list(dict.fromkeys(lookup_words))
+    results = {word: [] for word in unique_words}
     try:
         src = TATOEBA_CODES.get(source_lang, source_lang)
         tgt = TATOEBA_CODES.get(target_lang, target_lang)
-        
         corpus = ParallelCorpus(src, tgt)
-        
-        # Use word boundary regex to match whole word only
-        pattern = re.compile(r'\b' + re.escape(word) + r'\b', re.IGNORECASE)
-        
-        for sentence, translation in corpus:
-            if pattern.search(sentence.text):
-                examples.append((sentence.text, translation.text))
-                if len(examples) >= max_examples:
-                    break
-    except Exception as e:
-        print(f"\nTatoeba error for '{word}': {e}")
-    
-    return examples
 
-def generate_audio(text, lang):
-    """Generate audio file using gTTS"""
-    try:
-        os.makedirs("audio", exist_ok=True)
-        filename = f"{hashlib.md5(text.encode()).hexdigest()}.mp3"
-        filepath = os.path.join("audio", filename)
-        
-        if not os.path.exists(filepath):
-            tts = gTTS(text=text, lang=lang, slow=False)
-            tts.save(filepath)
-        
-        return filepath
+        patterns = {
+            word: re.compile(r"\b" + re.escape(word) + r"\b", re.IGNORECASE)
+            for word in unique_words
+        }
+
+        remaining = set(unique_words)
+        for sentence, translation in corpus:
+            if not remaining:
+                break
+
+            text = sentence.text
+            translated = translation.text if translation else ""
+
+            for word in list(remaining):
+                if patterns[word].search(text):
+                    results[word].append((text, translated))
+                    if len(results[word]) >= max_examples:
+                        remaining.discard(word)
+
+        # Ensure every original word key exists (including duplicates)
+        return {
+            word: list(
+                results.get(
+                    canonical_map[word]
+                    if canonical_map and word in canonical_map
+                    else word,
+                    [],
+                )
+            )
+            for word in words
+        }
+
     except Exception as e:
-        print(f"\nAudio error for '{text}': {e}")
-        return None
+        print(f"\nTatoeba error while fetching examples: {e}")
+        return {word: [] for word in words}
+
+
+def highlight_word(text, word, color="#ffcc00"):
+    """Return HTML-escaped text with whole-word occurrences of `word` wrapped in a bold colored span.
+    Safe for insertion into HTML previews and Anki fields.
+    """
+    if not text:
+        return ""
+    if not word:
+        return html.escape(text)
+
+    pattern = re.compile(r"\b" + re.escape(word) + r"\b", re.IGNORECASE)
+    last = 0
+    parts = []
+    for m in pattern.finditer(text):
+        parts.append(html.escape(text[last : m.start()]))
+        parts.append(f"<b style='color:{color}'>" + html.escape(m.group(0)) + "</b>")
+        last = m.end()
+    parts.append(html.escape(text[last:]))
+    return "".join(parts)
+
+
+def format_morphology_html(morph_info):
+    """Return HTML rows describing morphology (without outer container)."""
+    if not morph_info:
+        return ""
+
+    rows = []
+
+    def add_row(label, value):
+        if not value:
+            return
+        rows.append(
+            "<div style='display:flex;flex-direction:column;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.12);'>"
+            f"<span style='font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#a0a0a0;'>{label}</span>"
+            f"<span style='font-size:20px;font-weight:600;color:#fdfdfd;margin-top:4px;text-align:center;'>{html.escape(str(value))}</span>"
+            "</div>"
+        )
+
+    add_row("Part of Speech", morph_info.get("part_of_speech"))
+    add_row("Lemma", morph_info.get("lemma"))
+    add_row("Case", morph_info.get("case"))
+    add_row("Gender", morph_info.get("gender"))
+    add_row("Number", morph_info.get("number"))
+    add_row("Animacy", morph_info.get("animacy"))
+    add_row("Aspect", morph_info.get("aspect"))
+    add_row("Tense", morph_info.get("tense"))
+    add_row("Person", morph_info.get("person"))
+    add_row("Mood", morph_info.get("mood"))
+
+    if not rows:
+        return ""
+
+    return (
+        "<div style='display:flex;flex-direction:column;gap:4px;margin-top:8px;text-align:center;'>"
+        + "".join(rows)
+        + "</div>"
+    )
+
+
+def build_section_html(title, body_html, subtitle=None):
+    """Return a consistently styled section block for previews."""
+    if not body_html:
+        return ""
+
+    subtitle_html = (
+        f"<div class='section-subtitle'>{subtitle}</div>" if subtitle else ""
+    )
+
+    return (
+        "<div class='info-section'>"
+        f"<div class='section-title'>{title}</div>"
+        f"{subtitle_html}"
+        f"<div class='section-body'>{body_html}</div>"
+        "</div>"
+    )
+
+
+def build_top_section(meanings_html, morph_html):
+    """Return a single container that stacks meanings and grammar notes."""
+    if not meanings_html and not morph_html:
+        return ""
+
+    meanings_block = meanings_html or "<div class='muted'>No meanings available</div>"
+    block = [
+        "<div class='info-section stacked-info'>",
+        "<div class='section-title'>Possible Meanings</div>",
+        f"<div class='section-body meaning-body'>{meanings_block}</div>",
+    ]
+
+    if morph_html:
+        block.append("<div class='section-divider'></div>")
+        block.append("<div class='section-title'>Grammar Notes</div>")
+        block.append(f"<div class='section-body grammar-body'>{morph_html}</div>")
+
+    block.append("</div>")
+    return "".join(block)
+
 
 def create_preview_html(words_data):
     """Generate HTML preview with navigation"""
     cards_json = []
-    
+
     for data in words_data:
-        trans_html = "".join([f"<div><b>{k.upper()}:</b> {v}</div>" 
-                              for k, v in data['translations'].items()])
-        
-        examples_html = ""
-        if data.get('examples'):
-            for src, tgt in data['examples']:
-                examples_html += f"<div style='margin:10px 0'>• {src}<br><i style='color:#999'>{tgt}</i></div>"
+        display_word = data.get("display_word", data["word"])
+        meaning_lines = []
+        for lang, text in data["translations"].items():
+            meaning_lines.append(
+                "<div class='meaning-line'>"
+                f"<span class='lang-pill'>{lang.upper()}</span>"
+                f"<span class='meaning-text'>{text}</span>"
+                "</div>"
+            )
+        if not meaning_lines:
+            meaning_lines.append("<div class='muted'>No meanings available</div>")
+        meanings_html = "".join(meaning_lines)
+
+        morph_body = format_morphology_html(data.get("morphology"))
+
+        if data.get("examples"):
+            example_lines = []
+            for src, tgt in data["examples"]:
+                highlighted_src = highlight_word(src, data["word"])
+                highlighted_tgt = highlight_word(tgt, data["word"])
+                example_lines.append(
+                    "<div class='example-line'>"
+                    f"<div>• {highlighted_src}</div>"
+                    f"<i>{highlighted_tgt}</i>"
+                    "</div>"
+                )
+            examples_body = "".join(example_lines)
         else:
-            examples_html = "<i style='color:#666'>No examples found</i>"
-        
-        cards_json.append({
-            'word': data['word'],
-            'rank': data['rank'],
-            'translations': trans_html,
-            'examples': examples_html,
-            'audio': "🔊 Audio" if data.get('audio') else ""
-        })
-    
+            examples_body = "<div class='muted'>No examples found</div>"
+        examples_html = build_section_html(
+            "Usage Examples",
+            examples_body,
+        )
+
+        top_section_html = build_top_section(meanings_html, morph_body)
+
+        cards_json.append(
+            {
+                "word": display_word,
+                "rank": data["rank"],
+                "examples": examples_html,
+                "audio": "🔊 Audio" if data.get("audio") else "",
+                "romanization": data.get("romanization", ""),
+                "top_section": top_section_html,
+            }
+        )
+
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -309,25 +854,94 @@ def create_preview_html(words_data):
         .container {{ max-width: 900px; margin: 0 auto; }}
         .card {{
             background: #2a2a2a;
-            border-radius: 12px;
-            padding: 40px;
-            margin: 20px 0;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            border-radius: 16px;
+            padding: 32px;
+            margin: 18px 0;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.35);
         }}
-        .word {{ font-size: 72px; margin: 40px 0; }}
-        .translations {{ font-size: 24px; margin: 30px 0; }}
-        .translations div {{ margin: 15px 0; }}
-        .examples {{
+        .word {{ font-size: 68px; margin: 20px 0 14px; }}
+        .info-section {{
+            text-align: center;
+            background: #1f1f1f;
+            border: 1px solid #2f2f2f;
+            border-radius: 14px;
+            padding: 20px 24px;
+            margin: 18px auto;
+            max-width: 650px;
+        }}
+        .stacked-info {{
+            display: flex;
+            flex-direction: column;
             text-align: left;
-            font-size: 18px;
-            margin: 30px auto;
-            max-width: 600px;
-            padding: 20px;
-            background: #1a1a1a;
-            border-radius: 8px;
         }}
-        .rank {{ color: #888; margin: 20px 0; }}
-        .audio {{ color: #4CAF50; margin: 10px 0; }}
+        .section-title {{
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 14px;
+            color: #f9cf6c;
+            text-align: center;
+        }}
+        .section-subtitle {{
+            font-size: 13px;
+            color: #a0a0a0;
+            margin-top: 4px;
+            text-align: center;
+        }}
+        .section-body {{
+            margin-top: 16px;
+            font-size: 19px;
+            line-height: 1.5;
+            color: #f7f7f7;
+            text-align: center;
+        }}
+        .meaning-body {{ text-align: center; }}
+        .grammar-body {{ text-align: center; }}
+        .section-divider {{
+            width: 100%;
+            height: 1px;
+            background: rgba(249,207,108,0.25);
+            margin: 20px 0 12px;
+        }}
+        .meta-row {{
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin: 16px 0 10px;
+        }}
+        .chip {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 6px 14px;
+            border-radius: 999px;
+            background: #1f1f1f;
+            border: 1px solid #3a3a3a;
+            font-size: 15px;
+        }}
+        .chip.roman {{ color: #ffa6a6; }}
+        .chip.rank {{ color: #f9cf6c; }}
+        .audio-line {{ color: #4CAF50; margin: 8px 0; font-size: 16px; min-height: 20px; }}
+        .meaning-line {{
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            justify-content: center;
+            margin: 12px 0;
+        }}
+        .lang-pill {{
+            font-size: 12px;
+            letter-spacing: 1px;
+            color: #0f0f0f;
+            background: #f9cf6c;
+            border-radius: 999px;
+            padding: 4px 10px;
+        }}
+        .meaning-text {{ flex: 1; text-align: center; }}
+        .example-line {{ margin: 12px 0; line-height: 1.6; font-size: 18px; text-align: center; }}
+        .example-line i {{ color: #a3a3a3; font-size: 16px; display: block; margin-top: 6px; }}
+        .muted {{ color: #8a8a8a; font-style: italic; }}
         .nav {{
             margin: 30px 0;
             display: flex;
@@ -347,7 +961,6 @@ def create_preview_html(words_data):
         button:hover {{ background: #45a049; }}
         button:disabled {{ background: #555; cursor: not-allowed; }}
         .counter {{ font-size: 20px; color: #888; }}
-        hr {{ border: 1px solid #444; margin: 40px 0; }}
     </style>
 </head>
 <body>
@@ -361,20 +974,20 @@ def create_preview_html(words_data):
         </div>
         
         <div class="card">
-            <h2>FRONT</h2>
             <div class="word" id="front-word"></div>
-            <div class="audio" id="front-audio"></div>
-            <div class="rank">Rank: #<span id="front-rank"></span></div>
+            <div class="audio-line" id="front-audio"></div>
+            <div class="meta-row">
+                <div class="chip rank" id="front-rank"></div>
+            </div>
         </div>
         
         <div class="card">
-            <h2>BACK</h2>
-            <div class="word" id="back-word"></div>
-            <hr>
-            <div class="translations" id="translations"></div>
-            <div class="examples" id="examples"></div>
-            <div class="audio" id="back-audio"></div>
-            <div class="rank">Rank: #<span id="back-rank"></span></div>
+            <div class="meta-row">
+                <div class="chip roman" id="back-romanization"></div>
+            </div>
+            <div class="audio-line" id="back-audio"></div>
+            <div id="top-section"></div>
+            <div id="examples"></div>
         </div>
         
         <div class="nav">
@@ -385,18 +998,41 @@ def create_preview_html(words_data):
     <script>
         const cards = {json.dumps(cards_json)};
         let currentIndex = 0;
+
+        function setChip(id, text) {{
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (text) {{
+                el.textContent = text;
+                el.style.display = 'inline-flex';
+            }} else {{
+                el.textContent = '';
+                el.style.display = 'none';
+            }}
+        }}
+
+        function setLine(id, text) {{
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (text) {{
+                el.textContent = text;
+                el.style.display = 'block';
+            }} else {{
+                el.textContent = '';
+                el.style.display = 'none';
+            }}
+        }}
         
         function showCard(index) {{
             const card = cards[index];
             
             document.getElementById('front-word').textContent = card.word;
-            document.getElementById('front-rank').textContent = card.rank;
-            document.getElementById('front-audio').textContent = card.audio;
-            document.getElementById('back-word').textContent = card.word;
-            document.getElementById('back-rank').textContent = card.rank;
-            document.getElementById('back-audio').textContent = card.audio;
-            document.getElementById('translations').innerHTML = card.translations;
+            setLine('front-audio', card.audio);
+            setChip('front-rank', 'Rank · #' + card.rank);
+            document.getElementById('top-section').innerHTML = card.top_section;
             document.getElementById('examples').innerHTML = card.examples;
+            setLine('back-audio', card.audio);
+            setChip('back-romanization', card.romanization ? 'Romanization · ' + card.romanization : '');
             
             document.getElementById('current').textContent = index + 1;
             document.getElementById('total').textContent = cards.length;
@@ -426,136 +1062,239 @@ def create_preview_html(words_data):
 </body>
 </html>"""
 
+
 def create_deck(words_data, name, targets):
     """Create Anki deck with media files"""
     deck_id = int(hashlib.md5(name.encode()).hexdigest()[:8], 16)
     deck = genanki.Deck(deck_id, name)
-    
+
     # Build fields dynamically
-    fields = [{'name': 'Word'}, {'name': 'Rank'}]
-    fields.extend([{'name': f'Trans_{t}'} for t in targets])
-    fields.extend([{'name': 'Examples'}, {'name': 'Audio'}])
-    
-    # Build template
-    trans_back = "".join([f"<div style='margin:15px 0'><b>{t.upper()}:</b> {{{{Trans_{t}}}}}</div>" 
-                          for t in targets])
-    
+    fields = [
+        {"name": "Word"},
+        {"name": "Rank"},
+        {"name": "Romanization"},
+        {"name": "Meanings"},
+        {"name": "Morphology"},
+        {"name": "Examples"},
+        {"name": "Audio"},
+    ]
+
     model = genanki.Model(
-        int(hashlib.md5(b"FreqAnki-v7").hexdigest()[:8], 16),
-        'FreqAnki',
+        int(hashlib.md5(b"FreqAnki-v9").hexdigest()[:8], 16),
+        "FreqAnki",
         fields=fields,
-        templates=[{
-            'name': 'Card',
-            'qfmt': '<div style="font-size:72px;text-align:center;margin:60px;">{{Word}}</div>'
-                    '<div style="text-align:center;">{{Audio}}</div>'
-                    '<div style="color:#666;text-align:center;">Rank: {{Rank}}</div>',
-            'afmt': '<div style="font-size:48px;text-align:center;margin:40px;">{{Word}}</div><hr>' +
-                    trans_back +
-                    '<div style="margin:30px;padding:20px;background:#f9f9f9;border-radius:8px;text-align:left;">'
-                    '<b>📝 Examples:</b><br>{{Examples}}</div>'
-                    '<div style="text-align:center;">{{Audio}}</div>'
-                    '<div style="color:#666;text-align:center;margin-top:40px;">Rank: {{Rank}}</div>'
-        }]
+        templates=[
+            {
+                "name": "Card",
+                "qfmt": (
+                    "<div style='font-family:Arial,sans-serif;background:#111;color:#fff;padding:32px;border-radius:16px;'>"
+                    "<div style='font-size:64px;text-align:center;margin:12px 0 6px;'>{{Word}}</div>"
+                    "{{#Audio}}<div style='text-align:center;margin:8px 0;'>{{Audio}}</div>{{/Audio}}"
+                    "<div style='display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:12px;'>"
+                    "<div style='padding:6px 14px;border-radius:999px;border:1px solid #3a3a3a;background:#1f1f1f;color:#f9cf6c;font-size:15px;'>Rank · #{{Rank}}</div>"
+                    "</div>"
+                    "</div>"
+                ),
+                "afmt": (
+                    "<div style='font-family:Arial,sans-serif;background:#111;color:#fff;padding:32px;border-radius:16px;'>"
+                    "<div style='display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;'>"
+                    "{{#Romanization}}<div style='padding:6px 14px;border-radius:999px;border:1px solid #3a3a3a;background:#1f1f1f;color:#ffa6a6;font-size:15px;'>Romanization · {{Romanization}}</div>{{/Romanization}}"
+                    "</div>"
+                    "{{#Audio}}<div style='text-align:center;margin-bottom:12px;'>{{Audio}}</div>{{/Audio}}"
+                    "<div style='display:flex;justify-content:center;'>{{Meanings}}</div>"
+                    "{{Examples}}"
+                    "</div>"
+                ),
+            }
+        ],
     )
-    
+
     media_files = []
-    
+
     for data in words_data:
         # Build field values
-        fields_data = [data['word'], str(data['rank'])]
-        fields_data.extend([data['translations'].get(t, '') for t in targets])
-        
+        display_word = data.get("display_word", data["word"])
+        roman_value = data.get("romanization", "")
+        roman_value = html.escape(roman_value) if roman_value else ""
+        fields_data = [
+            display_word,
+            str(data["rank"]),
+            roman_value,
+        ]
+
+        meaning_lines = []
+        for lang in targets:
+            text = data["translations"].get(lang)
+            if not text:
+                continue
+            meaning_lines.append(
+                "<div style='display:flex;flex-direction:column;align-items:center;gap:6px;margin:10px 0;'>"
+                f"<span style='font-size:12px;letter-spacing:1px;color:#0f0f0f;background:#f9cf6c;border-radius:999px;padding:4px 10px;display:inline-flex;'>{lang.upper()}</span>"
+                f"<span style='font-size:19px;color:#f7f7f7;text-align:center;'>{html.escape(text)}</span>"
+                "</div>"
+            )
+        if not meaning_lines:
+            meaning_lines.append(
+                "<div style='color:#8a8a8a;font-style:italic;'>No meanings available</div>"
+            )
+        morph_html = format_morphology_html(data.get("morphology"))
+        combined_block = (
+            "<div style='text-align:center;background:#1f1f1f;border:1px solid #2f2f2f;border-radius:14px;padding:24px;margin:0;'>"
+            "<div style='text-transform:uppercase;letter-spacing:1px;font-size:13px;color:#f9cf6c;'>Possible Meanings</div>"
+            "<div style='margin-top:16px;font-size:18px;line-height:1.5;color:#f7f7f7;'>"
+            f"{''.join(meaning_lines)}"
+            "</div>"
+        )
+        if morph_html:
+            combined_block += (
+                "<div style='height:1px;background:rgba(255,255,255,0.12);margin:22px 0 12px;'></div>"
+                "<div style='text-transform:uppercase;letter-spacing:1px;font-size:13px;color:#f9cf6c;text-align:center;'>Grammar Notes</div>"
+                f"<div style='margin-top:12px;text-align:center;'>{morph_html}</div>"
+            )
+        combined_block += "</div>"
+        fields_data.append(combined_block)
+
+        # Morphology field kept for backwards-compatible template, but styling now lives in Meanings block
+        fields_data.append("")
+
         # Examples
-        examples = ""
-        if data.get('examples'):
-            for src, tgt in data['examples']:
-                examples += f"• {src}<br><i>{tgt}</i><br><br>"
+        example_lines = []
+        if data.get("examples"):
+            for src, tgt in data["examples"]:
+                src_html = highlight_word(src, data["word"])
+                tgt_html = highlight_word(tgt, data["word"])
+                example_lines.append(
+                    "<div style='margin:12px 0;line-height:1.6;font-size:18px;text-align:center;'>"
+                    f"• {src_html}<div style='color:#a3a3a3;font-size:16px;margin-top:6px;'><i>{tgt_html}</i></div>"
+                    "</div>"
+                )
         else:
-            examples = "<i>No examples available</i>"
-        fields_data.append(examples)
-        
-        # Audio
-        audio = ""
-        if data.get('audio'):
-            media_files.append(data['audio'])
-            audio = f"[sound:{os.path.basename(data['audio'])}]"
-        fields_data.append(audio)
-        
+            example_lines.append(
+                "<div style='color:#8a8a8a;font-style:italic;'>No examples available</div>"
+            )
+        examples_section = (
+            "<div style='text-align:center;background:#1f1f1f;border:1px solid #2f2f2f;border-radius:14px;padding:20px 24px;margin:18px auto;'>"
+            "<div style='text-transform:uppercase;letter-spacing:1px;font-size:13px;color:#f9cf6c;'>Usage Examples</div>"
+            "<div style='margin-top:16px;font-size:18px;line-height:1.5;color:#f7f7f7;'>"
+            f"{''.join(example_lines)}"
+            "</div></div>"
+        )
+        fields_data.append(examples_section)
+
+        audio_field = ""
+        if data.get("audio"):
+            media_files.append(data["audio"])
+            audio_field = f"[sound:{os.path.basename(data['audio'])}]"
+        fields_data.append(audio_field)
+
         deck.add_note(genanki.Note(model=model, fields=fields_data))
-    
+
     # Save
     output = f"{name.replace(' ', '_')}.apkg"
     package = genanki.Package(deck)
     package.media_files = media_files
     package.write_to_file(output)
-    
+
     print(f"✅ Created: {output}")
     return output
 
+
 def main():
     print("FreqAnki - Frequency-Based Anki Deck Generator\n")
-    
+
     # Get words
-    words = top_n_list(SOURCE, NUM_WORDS)
+    words = get_frequency_words(SOURCE, NUM_WORDS)
     print(f"📚 Got {len(words)} most frequent {SOURCE.upper()} words")
-    
+    canonical_map = {word: canonicalize_word(word) for word in words}
+    canonical_words = [canonical_map[word] for word in words]
+
+    # Load Kaikki entries once for audio
+    kaikki_entries = {}
+    if words:
+        print("\n🔊 Fetching Kaikki metadata for audio...")
+        lookup_targets = [canonical_map[word] for word in words]
+        kaikki_entries = load_kaikki_entries(lookup_targets, SOURCE)
+
     # Batch translate all words for each target language
     print(f"\n🌐 Translating to {len(TARGETS)} language(s)...")
     all_translations = {}
     for target in TARGETS:
         print(f"  → {target.upper()}")
-        translations = batch_translate(words, SOURCE, target, DEEPL_KEY)
+        translations = batch_translate(
+            canonical_words, SOURCE, target, DEEPL_KEY, kaikki_entries
+        )
         all_translations[target] = translations
-    
+
+    report_identity_translations(canonical_words, all_translations, labels=words)
+
+    examples_by_word = {}
+    if TARGETS and NUM_EXAMPLES > 0:
+        print("\n📝 Collecting usage examples from Tatoeba...", end=" ")
+        examples_by_word = collect_examples_for_words(
+            words, SOURCE, TARGETS[0], NUM_EXAMPLES, canonical_map
+        )
+        print("✓")
+
     # Process each word
     print(f"\n⚙️  Processing {NUM_WORDS} words...")
     words_data = []
-    
+
     for i, word in enumerate(words, 1):
-        print(f"  [{i}/{NUM_WORDS}] {word}", end='\r')
-        
+        print(f"  [{i}/{NUM_WORDS}] {word}", end="\r")
+
+        canonical = canonical_map[word]
+
         # Collect translations
-        translations = {t: all_translations[t][i-1] for t in TARGETS if all_translations[t][i-1]}
-        
+        translations = {
+            t: all_translations[t][i - 1] for t in TARGETS if all_translations[t][i - 1]
+        }
+
+        # Get morphological information
+        morphology = get_morphological_info(word, SOURCE)
+
         # Examples (only from first target)
-        examples = []
-        if TARGETS and NUM_EXAMPLES > 0:
-            examples = get_examples(word, SOURCE, TARGETS[0], NUM_EXAMPLES)
-        
-        # Audio
-        audio_file = None
-        if GENERATE_AUDIO:
-            audio_file = generate_audio(word, SOURCE)
-        
-        words_data.append({
-            'word': word,
-            'rank': i,
-            'translations': translations,
-            'examples': examples,
-            'audio': audio_file
-        })
-    
+        examples = examples_by_word.get(word, []) if examples_by_word else []
+
+        audio_file = get_audio_for_word(canonical, kaikki_entries)
+        romanization = get_romanization_for_word(canonical, kaikki_entries)
+        display_word = build_display_word(word, canonical)
+
+        words_data.append(
+            {
+                "word": word,
+                "lookup_word": canonical,
+                "display_word": display_word,
+                "rank": i,
+                "translations": translations,
+                "morphology": morphology,
+                "examples": examples,
+                "audio": audio_file,
+                "romanization": romanization,
+            }
+        )
+
     print(f"\n✅ Processed {len(words_data)} words")
-    
+
     # Preview
     if words_data:
         html = create_preview_html(words_data)
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html)
             temp_path = f.name
-        
+
         print("\n📋 Opening preview in browser...")
-        webbrowser.open('file://' + temp_path)
+        webbrowser.open("file://" + temp_path)
         input("Press Enter after viewing to continue...")
         os.unlink(temp_path)
-    
+
     # Generate deck
     response = input("\nGenerate Anki deck? (y/n): ").strip().lower()
-    if response == 'y':
+    if response == "y":
         create_deck(words_data, f"FreqAnki_{SOURCE}_Top_{NUM_WORDS}", TARGETS)
         print("\n🎉 Done! Import the .apkg file into Anki Desktop")
     else:
         print("❌ Cancelled")
+
 
 if __name__ == "__main__":
     main()

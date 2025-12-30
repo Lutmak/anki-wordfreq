@@ -1,3 +1,6 @@
 /audio
 .env 
 .venv
+/language-dicts
+__pycache__/
+kaikki.org-dictionary-all.jsonl
