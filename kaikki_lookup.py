@@ -118,7 +118,7 @@ def load_dictionary(
 
     entries: List[Dict] = []
     target_words_lower = {w.lower() for w in target_words if w.strip()}
-    pending = set(target_words_lower)
+    found_words = set()
 
     if not target_words_lower:
         print("No valid target words supplied.")
@@ -148,14 +148,17 @@ def load_dictionary(
                 word_lower = entry.get("word", "").lower()
                 if word_lower in target_words_lower:
                     entries.append(entry)
-                    pending.discard(word_lower)
+                    found_words.add(word_lower)
 
-                    if stop_when_all_found and not pending:
+                    # Only stop if we found at least one entry for each target word
+                    # and stop_when_all_found is True
+                    if stop_when_all_found and found_words == target_words_lower:
                         break
 
         print(f"\nFound {len(entries)} entries for language '{lang_code or 'any'}'")
-        if pending:
-            print(f"Still missing: {', '.join(sorted(pending))}")
+        missing = target_words_lower - found_words
+        if missing:
+            print(f"Still missing: {', '.join(sorted(missing))}")
         return entries
 
     except FileNotFoundError:

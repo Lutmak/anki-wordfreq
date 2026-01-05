@@ -38,7 +38,7 @@ load_dotenv()
 DEEPL_KEY = os.getenv("DEEPL_API_KEY")
 SOURCE = "ru"
 TARGETS = ["en", "es"]
-NUM_WORDS = 500
+NUM_WORDS = 2000
 NUM_EXAMPLES = 2
 AUDIO_DIR = "audio"
 
@@ -95,6 +95,10 @@ RUS_NUMBER_WORDS = {
 SPECIAL_CANONICAL_MAP = {
     "млн": "миллион",
     "тыс": "тысяча",
+    "руб": "рубль",
+    "ул": "улица",
+    "млрд": "миллиард",
+    "блн": "миллиард",
 }
 KAIKKI_SKIP_WORDS = {"нибудь", "нибыть"}
 
@@ -202,33 +206,6 @@ def sanitize_filename(text):
     return safe.strip("_") or "audio"
 
 
-def fetch_wikimedia_audio(entry, word):
-    """Download audio from Wiktextract sounds metadata if available."""
-    sounds = entry.get("sounds") or []
-    for sound in sounds:
-        url = sound.get("mp3_url") or sound.get("ogg_url")
-        if not url:
-            continue
-
-        ext = ".mp3" if url.lower().endswith(".mp3") else ".ogg"
-        os.makedirs(AUDIO_DIR, exist_ok=True)
-        filename = (
-            f"{sanitize_filename(word)}_{hashlib.md5(url.encode()).hexdigest()}{ext}"
-        )
-        path = os.path.join(AUDIO_DIR, filename)
-
-        if not os.path.exists(path):
-            try:
-                resp = requests.get(url, headers=HTTP_HEADERS, timeout=60)
-                resp.raise_for_status()
-                with open(path, "wb") as handle:
-                    handle.write(resp.content)
-            except Exception as exc:  # noqa: BLE001
-                print(f"Audio download failed for '{word}': {exc}")
-                return None
-        return path
-    return None
-
 
 def load_kaikki_entries(words, source_lang):
     """Load Kaikki entries for the requested words (best effort)."""
@@ -239,7 +216,7 @@ def load_kaikki_entries(words, source_lang):
             dictionary_path,
             unique,
             lang_code=source_lang,
-            stop_when_all_found=True,
+            stop_when_all_found=False,
         )
 
         grouped = defaultdict(list)
@@ -257,11 +234,111 @@ def get_audio_for_word(word, grouped_entries):
     entries = grouped_entries.get(word.lower()) if grouped_entries else None
     if not entries:
         return None
-    for entry in entries:
-        audio_path = fetch_wikimedia_audio(entry, word)
-        if audio_path:
-            return audio_path
+    
+    # Use the same prioritization as get_kaikki_glosses
+    pos_priority = {
+        "pron": 1,  # pronouns first
+        "verb": 2,
+        "noun": 3,
+        "adj": 4,
+        "adv": 5,
+        "conj": 6,
+        "prep": 7,
+        "character": 10,  # characters last
+    }
+    
+    def entry_sort_key(entry):
+        pos = entry.get("pos", "")
+        priority = pos_priority.get(pos, 8)  # default priority
+        etymology = entry.get("etymology_number", 1)
+        return (priority, etymology)
+    
+    sorted_entries = sorted(entries, key=entry_sort_key)
+    
+    for entry in sorted_entries:
+        audio_url = get_audio_url(entry)
+        if audio_url:
+            return audio_url
     return None
+
+
+def get_audio_url(entry):
+    """Get audio URL from Wiktextract sounds metadata without downloading."""
+    sounds = entry.get("sounds") or []
+    for sound in sounds:
+        url = sound.get("mp3_url") or sound.get("ogg_url")
+        if url:
+            return url
+    return None
+
+
+def download_audio_file(url, word):
+    """Download a single audio file with retry logic."""
+    import time
+    
+    ext = ".mp3" if url.lower().endswith(".mp3") else ".ogg"
+    os.makedirs(AUDIO_DIR, exist_ok=True)
+    filename = (
+        f"{sanitize_filename(word)}_{hashlib.md5(url.encode()).hexdigest()}{ext}"
+    )
+    path = os.path.join(AUDIO_DIR, filename)
+
+    if os.path.exists(path):
+        return path
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(url, headers=HTTP_HEADERS, timeout=60)
+            if resp.status_code == 429:
+                # Rate limited, wait and retry
+                wait_time = 2 ** attempt  # Exponential backoff
+                print(f"Rate limited for '{word}', waiting {wait_time}s...")
+                time.sleep(wait_time)
+                continue
+            resp.raise_for_status()
+            with open(path, "wb") as handle:
+                handle.write(resp.content)
+            return path  # Success
+        except Exception as exc:  # noqa: BLE001
+            if attempt == max_retries - 1:
+                print(f"Audio download failed for '{word}': {exc}")
+                return None
+            else:
+                # Wait a bit before retrying
+                time.sleep(1)
+    return None
+
+
+def download_audio_files_parallel(audio_urls, max_workers=5):
+    """Download multiple audio files in parallel."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
+    if not audio_urls:
+        return {}
+    
+    results = {}
+    
+    def download_single(item):
+        word, url = item
+        return word, download_audio_file(url, word)
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_word = {
+            executor.submit(download_single, item): item[0] 
+            for item in audio_urls.items()
+        }
+        
+        for future in as_completed(future_to_word):
+            word = future_to_word[future]
+            try:
+                word, path = future.result()
+                results[word] = path
+            except Exception as exc:  # noqa: BLE001
+                print(f"Audio download failed for '{word}': {exc}")
+                results[word] = None
+    
+    return results
 
 
 def extract_romanization(entry):
@@ -283,7 +360,28 @@ def get_romanization_for_word(word, grouped_entries):
     entries = grouped_entries.get(word.lower()) if grouped_entries else None
     if not entries:
         return ""
-    for entry in entries:
+    
+    # Use the same prioritization as get_kaikki_glosses
+    pos_priority = {
+        "pron": 1,  # pronouns first
+        "verb": 2,
+        "noun": 3,
+        "adj": 4,
+        "adv": 5,
+        "conj": 6,
+        "prep": 7,
+        "character": 10,  # characters last
+    }
+    
+    def entry_sort_key(entry):
+        pos = entry.get("pos", "")
+        priority = pos_priority.get(pos, 8)  # default priority
+        etymology = entry.get("etymology_number", 1)
+        return (priority, etymology)
+    
+    sorted_entries = sorted(entries, key=entry_sort_key)
+    
+    for entry in sorted_entries:
         roman = extract_romanization(entry)
         if roman:
             return roman
@@ -297,10 +395,43 @@ def get_kaikki_glosses(word, grouped_entries, limit=3):
     if not entries:
         return []
 
+    # Prioritize certain parts of speech over others
+    pos_priority = {
+        "pron": 1,  # pronouns first
+        "verb": 2,
+        "noun": 3,
+        "adj": 4,
+        "adv": 5,
+        "conj": 6,
+        "prep": 7,
+        "character": 10,  # characters last
+    }
+    
+    # Sort entries by POS priority, then by etymology number
+    def entry_sort_key(entry):
+        pos = entry.get("pos", "")
+        priority = pos_priority.get(pos, 8)  # default priority
+        etymology = entry.get("etymology_number", 1)
+        return (priority, etymology)
+    
+    sorted_entries = sorted(entries, key=entry_sort_key)
+
+    # Group entries by priority
+    from itertools import groupby
+    grouped_by_priority = []
+    for priority, group in groupby(sorted_entries, key=lambda e: pos_priority.get(e.get("pos", ""), 8)):
+        grouped_by_priority.append((priority, list(group)))
+    
+    # Use only the highest priority group
+    if grouped_by_priority:
+        highest_priority_entries = grouped_by_priority[0][1]
+    else:
+        highest_priority_entries = sorted_entries
+
     meanings = []
     seen_lower = set()
 
-    for entry in entries:
+    for entry in highest_priority_entries:
         senses = entry.get("senses", []) or []
         for sense in senses:
             for meaning in get_english_meanings(sense):
@@ -640,12 +771,19 @@ def collect_examples_for_words(
     if max_examples <= 0 or not words:
         return {word: [] for word in words}
 
-    lookup_words = [
-        canonical_map[word] if canonical_map and word in canonical_map else word
-        for word in words
-    ]
-    unique_words = list(dict.fromkeys(lookup_words))
+    # Create lookup preferences: try actual word first, then canonical
+    lookup_preferences = {}
+    for word in words:
+        actual = word
+        canonical = canonical_map[word] if canonical_map and word in canonical_map else word
+        if actual != canonical:
+            lookup_preferences[word] = [actual, canonical]
+        else:
+            lookup_preferences[word] = [actual]
+    
+    unique_words = list(set(word for prefs in lookup_preferences.values() for word in prefs))
     results = {word: [] for word in unique_words}
+    
     try:
         src = TATOEBA_CODES.get(source_lang, source_lang)
         tgt = TATOEBA_CODES.get(target_lang, target_lang)
@@ -656,7 +794,12 @@ def collect_examples_for_words(
             for word in unique_words
         }
 
-        remaining = set(unique_words)
+        remaining = set(lookup_preferences.keys())
+        candidates = {word: [] for word in lookup_preferences.keys()}
+        
+        # Collect more candidates than needed
+        max_candidates = max_examples * 3
+        
         for sentence, translation in corpus:
             if not remaining:
                 break
@@ -664,24 +807,52 @@ def collect_examples_for_words(
             text = sentence.text
             translated = translation.text if translation else ""
 
-            for word in list(remaining):
-                if patterns[word].search(text):
-                    results[word].append((text, translated))
-                    if len(results[word]) >= max_examples:
-                        remaining.discard(word)
+            for orig_word in list(remaining):
+                for lookup_word in lookup_preferences[orig_word]:
+                    if patterns[lookup_word].search(text):
+                        candidates[orig_word].append((text, translated, lookup_word))
+                        break
+            
+        # Check if we have enough candidates for each word
+        for orig_word in list(remaining):
+            if len(candidates[orig_word]) >= max_candidates:
+                remaining.discard(orig_word)
+    
+        # Deduplicate examples based on source text
+        for word in candidates:
+            seen_texts = set()
+            unique_candidates = []
+            for item in candidates[word]:
+                text = item[0]
+                if text not in seen_texts:
+                    seen_texts.add(text)
+                    unique_candidates.append(item)
+            candidates[word] = unique_candidates
+        
+        # Now select the best examples for each word
+        results = {}
+        for orig_word, candidate_list in candidates.items():
+            if not candidate_list:
+                results[orig_word] = []
+                continue
+            
+            # Separate examples by whether they contain the actual word
+            actual_word = lookup_preferences[orig_word][0]
+            actual_examples = []
+            canonical_examples = []
+            
+            for text, translated, matched in candidate_list:
+                if patterns[actual_word].search(text):
+                    actual_examples.append((text, translated, matched))
+                else:
+                    canonical_examples.append((text, translated, matched))
+            
+            # Prefer examples with actual word, then canonical
+            selected = (actual_examples + canonical_examples)[:max_examples]
+            results[orig_word] = selected
 
-        # Ensure every original word key exists (including duplicates)
-        return {
-            word: list(
-                results.get(
-                    canonical_map[word]
-                    if canonical_map and word in canonical_map
-                    else word,
-                    [],
-                )
-            )
-            for word in words
-        }
+        # Return results keyed by original words
+        return {word: results.get(word, []) for word in words}
 
     except Exception as e:
         print(f"\nTatoeba error while fetching examples: {e}")
@@ -739,8 +910,12 @@ def format_morphology_html(morph_info):
     if not rows:
         return ""
 
+    container_style = "display:flex;flex-direction:column;gap:4px;margin-top:8px;text-align:center;"
+    if len(rows) > 3:
+        container_style = "display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;text-align:center;"
+
     return (
-        "<div style='display:flex;flex-direction:column;gap:4px;margin-top:8px;text-align:center;'>"
+        f"<div style='{container_style}'>"
         + "".join(rows)
         + "</div>"
     )
@@ -807,9 +982,9 @@ def create_preview_html(words_data):
 
         if data.get("examples"):
             example_lines = []
-            for src, tgt in data["examples"]:
-                highlighted_src = highlight_word(src, data["word"])
-                highlighted_tgt = highlight_word(tgt, data["word"])
+            for src, tgt, matched in data["examples"]:
+                highlighted_src = highlight_word(src, matched)
+                highlighted_tgt = highlight_word(tgt, matched)
                 example_lines.append(
                     "<div class='example-line'>"
                     f"<div>• {highlighted_src}</div>"
@@ -831,7 +1006,7 @@ def create_preview_html(words_data):
                 "word": display_word,
                 "rank": data["rank"],
                 "examples": examples_html,
-                "audio": "🔊 Audio" if data.get("audio") else "",
+                "audio": "🔊 Audio" if data.get("audio_url") else "",
                 "romanization": data.get("romanization", ""),
                 "top_section": top_section_html,
             }
@@ -1065,6 +1240,25 @@ def create_preview_html(words_data):
 
 def create_deck(words_data, name, targets):
     """Create Anki deck with media files"""
+    print("🎵 Downloading audio files...")
+    
+    # Collect all audio URLs
+    audio_urls = {}
+    for data in words_data:
+        if data.get("audio_url"):
+            audio_urls[data["word"]] = data["audio_url"]
+    
+    # Download audio files in parallel
+    audio_paths = download_audio_files_parallel(audio_urls, max_workers=5)
+    
+    # Update words_data with downloaded paths
+    for data in words_data:
+        word = data["word"]
+        if word in audio_paths and audio_paths[word]:
+            data["audio"] = audio_paths[word]
+        else:
+            data["audio"] = None
+    
     deck_id = int(hashlib.md5(name.encode()).hexdigest()[:8], 16)
     deck = genanki.Deck(deck_id, name)
 
@@ -1139,16 +1333,16 @@ def create_deck(words_data, name, targets):
             )
         morph_html = format_morphology_html(data.get("morphology"))
         combined_block = (
-            "<div style='text-align:center;background:#1f1f1f;border:1px solid #2f2f2f;border-radius:14px;padding:24px;margin:0;'>"
-            "<div style='text-transform:uppercase;letter-spacing:1px;font-size:13px;color:#f9cf6c;'>Possible Meanings</div>"
-            "<div style='margin-top:16px;font-size:18px;line-height:1.5;color:#f7f7f7;'>"
+            "<div style='text-align:left;background:#1f1f1f;border:1px solid #2f2f2f;border-radius:14px;padding:20px 24px;margin:18px auto;max-width:650px;'>"
+            "<div style='text-transform:uppercase;letter-spacing:1px;font-size:14px;color:#f9cf6c;text-align:center;'>Possible Meanings</div>"
+            "<div style='margin-top:16px;font-size:19px;line-height:1.5;color:#f7f7f7;text-align:center;'>"
             f"{''.join(meaning_lines)}"
             "</div>"
         )
         if morph_html:
             combined_block += (
-                "<div style='height:1px;background:rgba(255,255,255,0.12);margin:22px 0 12px;'></div>"
-                "<div style='text-transform:uppercase;letter-spacing:1px;font-size:13px;color:#f9cf6c;text-align:center;'>Grammar Notes</div>"
+                "<div style='width:100%;height:1px;background:rgba(249,207,108,0.25);margin:20px 0 12px;'></div>"
+                "<div style='text-transform:uppercase;letter-spacing:1px;font-size:14px;color:#f9cf6c;text-align:center;'>Grammar Notes</div>"
                 f"<div style='margin-top:12px;text-align:center;'>{morph_html}</div>"
             )
         combined_block += "</div>"
@@ -1160,9 +1354,9 @@ def create_deck(words_data, name, targets):
         # Examples
         example_lines = []
         if data.get("examples"):
-            for src, tgt in data["examples"]:
-                src_html = highlight_word(src, data["word"])
-                tgt_html = highlight_word(tgt, data["word"])
+            for src, tgt, matched in data["examples"]:
+                src_html = highlight_word(src, matched)
+                tgt_html = highlight_word(tgt, matched)
                 example_lines.append(
                     "<div style='margin:12px 0;line-height:1.6;font-size:18px;text-align:center;'>"
                     f"• {src_html}<div style='color:#a3a3a3;font-size:16px;margin-top:6px;'><i>{tgt_html}</i></div>"
@@ -1173,9 +1367,9 @@ def create_deck(words_data, name, targets):
                 "<div style='color:#8a8a8a;font-style:italic;'>No examples available</div>"
             )
         examples_section = (
-            "<div style='text-align:center;background:#1f1f1f;border:1px solid #2f2f2f;border-radius:14px;padding:20px 24px;margin:18px auto;'>"
-            "<div style='text-transform:uppercase;letter-spacing:1px;font-size:13px;color:#f9cf6c;'>Usage Examples</div>"
-            "<div style='margin-top:16px;font-size:18px;line-height:1.5;color:#f7f7f7;'>"
+            "<div style='text-align:center;background:#1f1f1f;border:1px solid #2f2f2f;border-radius:14px;padding:20px 24px;margin:18px auto;max-width:650px;'>"
+            "<div style='text-transform:uppercase;letter-spacing:1px;font-size:14px;color:#f9cf6c;text-align:center;'>Usage Examples</div>"
+            "<div style='margin-top:16px;font-size:19px;line-height:1.5;color:#f7f7f7;text-align:center;'>"
             f"{''.join(example_lines)}"
             "</div></div>"
         )
@@ -1212,7 +1406,7 @@ def main():
     kaikki_entries = {}
     if words:
         print("\n🔊 Fetching Kaikki metadata for audio...")
-        lookup_targets = [canonical_map[word] for word in words]
+        lookup_targets = list(set(words + [canonical_map[word] for word in words]))
         kaikki_entries = load_kaikki_entries(lookup_targets, SOURCE)
 
     # Batch translate all words for each target language
@@ -1255,8 +1449,8 @@ def main():
         # Examples (only from first target)
         examples = examples_by_word.get(word, []) if examples_by_word else []
 
-        audio_file = get_audio_for_word(canonical, kaikki_entries)
-        romanization = get_romanization_for_word(canonical, kaikki_entries)
+        audio_url = get_audio_for_word(word, kaikki_entries) or get_audio_for_word(canonical, kaikki_entries)
+        romanization = get_romanization_for_word(word, kaikki_entries) or get_romanization_for_word(canonical, kaikki_entries)
         display_word = build_display_word(word, canonical)
 
         words_data.append(
@@ -1268,7 +1462,7 @@ def main():
                 "translations": translations,
                 "morphology": morphology,
                 "examples": examples,
-                "audio": audio_file,
+                "audio_url": audio_url,
                 "romanization": romanization,
             }
         )
