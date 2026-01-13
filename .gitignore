@@ -1,6 +1,30 @@
+# Audio files
 /audio
-.env 
+
+# Environment
+.env
 .venv
+
+# Dictionaries
 /language-dicts
-__pycache__/
 kaikki.org-dictionary-all.jsonl
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Cache
+.cache/
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Generated decks (keep in local dev)
+*.apkg
