@@ -1,91 +1,14 @@
-"""HTML preview generation for FreqAnki cards."""
+"""HTML preview generation for FreqAnki cards.
 
-import html
+Uses the same HTML generation as deck.py to ensure preview matches final cards.
+"""
+
 import json
-import re
 import tempfile
 import webbrowser
 from pathlib import Path
 
-from freqanki.core.deck import WordData, format_morphology_html, highlight_word
-
-
-def build_meanings_preview_html(
-    translations: dict[str, str] | None,
-    target_langs: list[str],
-) -> str:
-    """Build meanings HTML for preview."""
-    if not translations:
-        return "<div class='muted'>No meanings available</div>"
-
-    lines: list[str] = []
-    for lang in target_langs:
-        text = translations.get(lang)
-        if not text:
-            continue
-        lines.append(
-            "<div class='meaning-line'>"
-            f"<span class='lang-pill'>{lang.upper()}</span>"
-            f"<span class='meaning-text'>{html.escape(text)}</span>"
-            "</div>"
-        )
-
-    if not lines:
-        return "<div class='muted'>No meanings available</div>"
-
-    return "".join(lines)
-
-
-def build_examples_preview_html(
-    examples: list[tuple[str, str, str]] | None,
-    literal_translations: dict[str, str] | None = None,
-) -> str:
-    """Build examples HTML for preview."""
-    if not examples:
-        return "<div class='muted'>No examples found</div>"
-
-    lines: list[str] = []
-    for src, tgt, matched in examples:
-        src_html = highlight_word(src, matched)
-        tgt_html = highlight_word(tgt, matched)
-
-        line = (
-            "<div class='example-line'>"
-            f"<div>• {src_html}</div>"
-            f"<i>{tgt_html}</i>"
-        )
-
-        if literal_translations and src in literal_translations:
-            line += f"<div class='literal'>[{html.escape(literal_translations[src])}]</div>"
-
-        line += "</div>"
-        lines.append(line)
-
-    return "".join(lines)
-
-
-def build_top_section_html(
-    translations: dict[str, str] | None,
-    target_langs: list[str],
-    morphology: dict | None,
-) -> str:
-    """Build combined meanings and grammar section."""
-    meanings_html = build_meanings_preview_html(translations, target_langs)
-    morph_html = format_morphology_html(morphology)
-
-    block = [
-        "<div class='info-section stacked-info'>",
-        "<div class='section-title'>Possible Meanings</div>",
-        f"<div class='section-body meaning-body'>{meanings_html}</div>",
-    ]
-
-    if morph_html:
-        block.append("<div class='section-divider'></div>")
-        block.append("<div class='section-title'>Grammar Notes</div>")
-        block.append(f"<div class='section-body grammar-body'>{morph_html}</div>")
-
-    block.append("</div>")
-    return "".join(block)
+from freqanki.core.deck import WordData, build_card_content_block
 
 
 def create_preview_html(
@@ -105,27 +28,37 @@ def create_preview_html(
     cards_json = []
 
     for data in words_data:
-        top_section = build_top_section_html(
-            data.translations,
+        # Use the same HTML generation as Anki cards for consistency
+        content_html = build_card_content_block(
+            data.translations or {},
             target_langs,
             data.morphology,
+            data.examples,
+            data.literal_translations,
+            data.word_translations,
         )
 
-        examples_html = (
-            "<div class='info-section'>"
-            "<div class='section-title'>Usage Examples</div>"
-            f"<div class='section-body'>{build_examples_preview_html(data.examples, data.literal_translations)}</div>"
-            "</div>"
-        )
+        # Build romanization: "word | romanization | ipa" (no labels)
+        romanization_parts: list[str] = []
+        #TODO: instead of hardcoding "Russian:", get language name from lang module
+        if data.display_word:
+            romanization_parts.append("Russian: " + data.display_word)
+        if data.romanization:
+            romanization_parts.append("Romanization: " + data.romanization)
+        if data.transliteration and data.transliteration != data.romanization:
+            # Remove brackets from IPA
+            ipa_clean = data.transliteration.strip("[]")
+            romanization_parts.append("Ipa: " + ipa_clean)
+
+        romanization_display = " | ".join(romanization_parts) if romanization_parts else ""
 
         cards_json.append(
             {
                 "word": data.display_word,
                 "rank": data.rank,
-                "romanization": data.romanization or "",
+                "romanization": romanization_display,
                 "audio": "Audio" if data.audio_path else "",
-                "top_section": top_section,
-                "examples": examples_html,
+                "content": content_html,
             }
         )
 
@@ -135,6 +68,7 @@ def create_preview_html(
     <meta charset="UTF-8">
     <title>FreqAnki Preview</title>
     <style>
+        /* Page layout - preview wrapper only */
         body {{
             font-family: Arial, sans-serif;
             text-align: center;
@@ -145,49 +79,13 @@ def create_preview_html(
         }}
         .container {{ max-width: 900px; margin: 0 auto; }}
         .card {{
-            background: #2a2a2a;
+            background: #111;
             border-radius: 16px;
             padding: 32px;
             margin: 18px 0;
             box-shadow: 0 8px 30px rgba(0,0,0,0.35);
         }}
         .word {{ font-size: 68px; margin: 20px 0 14px; }}
-        .info-section {{
-            text-align: center;
-            background: #1f1f1f;
-            border: 1px solid #2f2f2f;
-            border-radius: 14px;
-            padding: 20px 24px;
-            margin: 18px auto;
-            max-width: 650px;
-        }}
-        .stacked-info {{
-            display: flex;
-            flex-direction: column;
-            text-align: left;
-        }}
-        .section-title {{
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            font-size: 14px;
-            color: #f9cf6c;
-            text-align: center;
-        }}
-        .section-body {{
-            margin-top: 16px;
-            font-size: 19px;
-            line-height: 1.5;
-            color: #f7f7f7;
-            text-align: center;
-        }}
-        .meaning-body {{ text-align: center; }}
-        .grammar-body {{ text-align: center; }}
-        .section-divider {{
-            width: 100%;
-            height: 1px;
-            background: rgba(249,207,108,0.25);
-            margin: 20px 0 12px;
-        }}
         .meta-row {{
             display: flex;
             justify-content: center;
@@ -205,30 +103,17 @@ def create_preview_html(
             border: 1px solid #3a3a3a;
             font-size: 15px;
         }}
-        .chip.roman {{ color: #ffa6a6; }}
-        .chip.rank {{ color: #f9cf6c; }}
-        .audio-line {{ color: #4CAF50; margin: 8px 0; font-size: 16px; min-height: 20px; }}
-        .meaning-line {{
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 8px;
-            justify-content: center;
-            margin: 12px 0;
-        }}
-        .lang-pill {{
+        .chip.roman {{
             font-size: 12px;
             letter-spacing: 1px;
             color: #0f0f0f;
             background: #f9cf6c;
             border-radius: 999px;
             padding: 4px 10px;
+            border: none;
         }}
-        .meaning-text {{ flex: 1; text-align: center; }}
-        .example-line {{ margin: 12px 0; line-height: 1.6; font-size: 18px; text-align: center; }}
-        .example-line i {{ color: #a3a3a3; font-size: 16px; display: block; margin-top: 6px; }}
-        .literal {{ color: #8a8a8a; font-size: 14px; margin-top: 4px; }}
-        .muted {{ color: #8a8a8a; font-style: italic; }}
+        .chip.rank {{ color: #f9cf6c; }}
+        .audio-line {{ color: #4CAF50; margin: 8px 0; font-size: 16px; min-height: 20px; }}
         .nav {{
             margin: 30px 0;
             display: flex;
@@ -273,8 +158,7 @@ def create_preview_html(
                 <div class="chip roman" id="back-romanization"></div>
             </div>
             <div class="audio-line" id="back-audio"></div>
-            <div id="top-section"></div>
-            <div id="examples"></div>
+            <div id="content"></div>
         </div>
 
         <div class="nav">
@@ -316,10 +200,9 @@ def create_preview_html(
             document.getElementById('front-word').textContent = card.word;
             setLine('front-audio', card.audio);
             setChip('front-rank', 'Rank #' + card.rank);
-            document.getElementById('top-section').innerHTML = card.top_section;
-            document.getElementById('examples').innerHTML = card.examples;
+            document.getElementById('content').innerHTML = card.content;
             setLine('back-audio', card.audio);
-            setChip('back-romanization', card.romanization ? 'Romanization: ' + card.romanization : '');
+            setChip('back-romanization', card.romanization ? card.romanization : '');
 
             document.getElementById('current').textContent = index + 1;
             document.getElementById('total').textContent = cards.length;

@@ -20,10 +20,12 @@ class WordData:
     rank: int
     display_word: str
     romanization: str | None = None
+    transliteration: str | None = None  # From Kaikki (e.g., with stress marks)
     morphology: dict | None = None
     translations: dict[str, str] | None = None  # {lang: translation}
     examples: list[tuple[str, str, str]] | None = None  # [(src, tgt, matched)]
     literal_translations: dict[str, str] | None = None  # {sentence: translation}
+    word_translations: dict[str, list[tuple[str, str]]] | None = None  # {sentence: [(word, trans)]}
     audio_path: Path | None = None
 
 
@@ -81,12 +83,14 @@ def format_morphology_html(morph_info: dict | None) -> str:
     if not rows:
         return ""
 
-    container_style = (
-        "display:flex;flex-direction:column;gap:4px;margin-top:8px;text-align:center;"
-    )
-    if len(rows) > 3:
+    # Dynamic grid: 1 col for 1-2 items, 3 cols for 3+ items (2 rows x 3 cols)
+    if len(rows) <= 2:
         container_style = (
-            "display:grid;grid-template-columns:1fr 1fr;gap:10px;"
+            "display:flex;flex-direction:column;gap:4px;margin-top:8px;text-align:center;"
+        )
+    else:
+        container_style = (
+            "display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;"
             "margin-top:8px;text-align:center;"
         )
 
@@ -103,7 +107,7 @@ def format_meanings_html(translations: dict[str, str], target_langs: list[str]) 
             continue
         lines.append(
             "<div style='display:flex;flex-direction:column;align-items:center;"
-            "gap:6px;margin:10px 0;'>"
+            "gap:4px;margin:6px 0;'>"
             f"<span style='font-size:12px;letter-spacing:1px;color:#0f0f0f;"
             f"background:#f9cf6c;border-radius:999px;padding:4px 10px;"
             f"display:inline-flex;'>{lang.upper()}</span>"
@@ -118,92 +122,194 @@ def format_meanings_html(translations: dict[str, str], target_langs: list[str]) 
     return "".join(lines)
 
 
+def format_word_by_word_html(
+    word_pairs: list[tuple[str, str]],
+    matched_word: str,
+    highlight_color: str = "#ffcc00",
+) -> tuple[list[str], list[str]]:
+    """
+    Format word-by-word translations as cell lists (not full rows).
+
+    Args:
+        word_pairs: List of (source_display, translated) tuples
+            source_display may be merged words like "С Хэллоуином"
+        matched_word: The target word to highlight
+        highlight_color: Color for highlighting
+
+    Returns:
+        Tuple of (source_cells, translation_cells) - lists of <td> elements
+    """
+    source_cells: list[str] = []
+    trans_cells: list[str] = []
+
+    # Create pattern to check if matched word is contained in source
+    matched_pattern = re.compile(r"\b" + re.escape(matched_word) + r"\b", re.IGNORECASE)
+
+    for src_display, trans_word in word_pairs:
+        # Check if matched word is CONTAINED in source (for merged groups)
+        is_matched = bool(matched_pattern.search(src_display))
+
+        if is_matched:
+            src_style = f"color:{highlight_color};font-weight:bold;"
+            trans_style = f"color:{highlight_color};font-weight:bold;"
+        else:
+            src_style = "color:#f7f7f7;"
+            trans_style = "color:#a0a0a0;"
+
+        source_cells.append(
+            f"<td style='padding:4px 10px;text-align:center;font-size:17px;{src_style}'>"
+            f"{html.escape(src_display)}</td>"
+        )
+        trans_cells.append(
+            f"<td style='padding:4px 10px;text-align:center;{trans_style}font-size:15px;'>"
+            f"{html.escape(trans_word)}</td>"
+        )
+
+    return source_cells, trans_cells
+
+
 def format_examples_html(
     examples: list[tuple[str, str, str]] | None,
     literal_translations: dict[str, str] | None = None,
+    word_translations: dict[str, list[tuple[str, str]]] | None = None,
 ) -> str:
-    """Format example sentences as HTML."""
+    """
+    Format example sentences as HTML tables.
+
+    Args:
+        examples: List of (source, target, matched_word) tuples
+        literal_translations: Dict of sentence -> full literal translation (fallback)
+        word_translations: Dict of sentence -> [(word, translation)] for table format
+
+    Returns:
+        HTML string with formatted examples
+    """
     if not examples:
         return "<div style='color:#8a8a8a;font-style:italic;'>No examples available</div>"
 
-    lines: list[str] = []
+    blocks: list[str] = []
+
+    # Simple label style - subtle text, no background
+    label_style = (
+        "font-size:10px;letter-spacing:0.5px;color:#666;text-transform:uppercase;"
+    )
 
     for src, tgt, matched in examples:
-        src_html = highlight_word(src, matched)
-        tgt_html = highlight_word(tgt, matched)
+        # Check if we have word-by-word translations for this sentence
+        if word_translations and src in word_translations:
+            word_pairs = word_translations[src]
+            source_cells, trans_cells = format_word_by_word_html(word_pairs, matched)
+            num_cols = len(source_cells)
 
-        line = (
-            "<div style='margin:12px 0;line-height:1.6;font-size:18px;text-align:center;'>"
-            f"• {src_html}"
-            f"<div style='color:#a3a3a3;font-size:16px;margin-top:6px;'>"
-            f"<i>{tgt_html}</i></div>"
-        )
+            # Label cell style - subtle and unobtrusive
+            label_cell_style = "padding:2px 6px;text-align:right;vertical-align:middle;"
 
-        # Add literal translation if available
-        if literal_translations and src in literal_translations:
-            literal = literal_translations[src]
-            line += (
-                f"<div style='color:#8a8a8a;font-size:14px;margin-top:4px;'>"
-                f"[{html.escape(literal)}]</div>"
+            # Table with simple text labels at start of each row
+            block = (
+                "<div style='margin:10px 0;text-align:center;'>"
+                "<table style='display:inline-table;border-collapse:collapse;background:#1a1a1a;"
+                "border-radius:8px;overflow:hidden;'>"
+                # Row 1: RUSSIAN [source words]
+                f"<tr><td style='{label_cell_style}{label_style}'>RUSSIAN</td>"
+                + "".join(source_cells) + "</tr>"
+                # Row 2: LITERALLY [translations]
+                f"<tr><td style='{label_cell_style}{label_style}'>LITERALLY</td>"
+                + "".join(trans_cells) + "</tr>"
+                # Row 3: ENGLISH [natural translation]
+                f"<tr><td style='{label_cell_style}{label_style}'>ENGLISH</td>"
+                f"<td colspan='{num_cols}' style='padding:4px 10px;"
+                f"color:#a3a3a3;font-style:italic;text-align:left;font-size:16px;'>"
+                f"{html.escape(tgt)}</td></tr>"
+                "</table></div>"
+            )
+        else:
+            # Fallback to simple format
+            src_html = highlight_word(src, matched)
+            tgt_html = highlight_word(tgt, matched)
+
+            block = (
+                "<div style='margin:12px 0;line-height:1.6;font-size:18px;text-align:center;'>"
+                f"• {src_html}"
+                f"<div style='color:#a3a3a3;font-size:16px;margin-top:6px;'>"
+                f"<i>{tgt_html}</i></div>"
             )
 
-        line += "</div>"
-        lines.append(line)
+            # Add literal translation if available (old format fallback)
+            if literal_translations and src in literal_translations:
+                literal = literal_translations[src]
+                block += (
+                    f"<div style='color:#8a8a8a;font-size:14px;margin-top:4px;'>"
+                    f"[{html.escape(literal)}]</div>"
+                )
 
-    return "".join(lines)
+            block += "</div>"
+
+        blocks.append(block)
+
+    return "".join(blocks)
 
 
-def build_meanings_block(
+def build_card_content_block(
     translations: dict[str, str],
     target_langs: list[str],
     morphology: dict | None,
+    examples: list[tuple[str, str, str]] | None,
+    literal_translations: dict[str, str] | None = None,
+    word_translations: dict[str, list[tuple[str, str]]] | None = None,
 ) -> str:
-    """Build the combined meanings and grammar HTML block."""
+    """Build the complete card content block with all sections in one container."""
     meanings_html = format_meanings_html(translations, target_langs)
     morph_html = format_morphology_html(morphology)
+    examples_html = format_examples_html(examples, literal_translations, word_translations)
 
+    # Section title style
+    title_style = (
+        "text-transform:uppercase;letter-spacing:1px;font-size:14px;"
+        "color:#f9cf6c;text-align:center;"
+    )
+    # Divider style
+    divider = (
+        "<div style='width:100%;height:1px;background:rgba(249,207,108,0.25);"
+        "margin:12px 0 8px;'></div>"
+    )
+
+    # Start container
     block = (
         "<div style='text-align:left;background:#1f1f1f;border:1px solid #2f2f2f;"
-        "border-radius:14px;padding:20px 24px;margin:18px auto;max-width:650px;'>"
-        "<div style='text-transform:uppercase;letter-spacing:1px;font-size:14px;"
-        "color:#f9cf6c;text-align:center;'>Possible Meanings</div>"
-        "<div style='margin-top:16px;font-size:19px;line-height:1.5;color:#f7f7f7;"
+        "border-radius:14px;padding:16px 20px;margin:14px auto;max-width:650px;'>"
+    )
+
+    # Possible Meanings section
+    block += (
+        f"<div style='{title_style}'>Possible Meanings</div>"
+        "<div style='margin-top:4px;font-size:19px;line-height:1.4;color:#f7f7f7;"
         f"text-align:center;'>{meanings_html}</div>"
     )
 
+    # Grammar Notes section (if available)
     if morph_html:
+        block += divider
         block += (
-            "<div style='width:100%;height:1px;background:rgba(249,207,108,0.25);"
-            "margin:20px 0 12px;'></div>"
-            "<div style='text-transform:uppercase;letter-spacing:1px;font-size:14px;"
-            "color:#f9cf6c;text-align:center;'>Grammar Notes</div>"
-            f"<div style='margin-top:12px;text-align:center;'>{morph_html}</div>"
+            f"<div style='{title_style}'>Grammar Notes</div>"
+            f"<div style='margin-top:4px;text-align:center;'>{morph_html}</div>"
         )
+
+    # Usage Examples section
+    block += divider
+    block += (
+        f"<div style='{title_style}'>Usage Examples</div>"
+        "<div style='margin-top:4px;font-size:19px;line-height:1.4;color:#f7f7f7;"
+        f"text-align:center;'>{examples_html}</div>"
+    )
 
     block += "</div>"
     return block
 
 
-def build_examples_block(
-    examples: list[tuple[str, str, str]] | None,
-    literal_translations: dict[str, str] | None = None,
-) -> str:
-    """Build the examples HTML block."""
-    examples_html = format_examples_html(examples, literal_translations)
-
-    return (
-        "<div style='text-align:center;background:#1f1f1f;border:1px solid #2f2f2f;"
-        "border-radius:14px;padding:20px 24px;margin:18px auto;max-width:650px;'>"
-        "<div style='text-transform:uppercase;letter-spacing:1px;font-size:14px;"
-        "color:#f9cf6c;text-align:center;'>Usage Examples</div>"
-        "<div style='margin-top:16px;font-size:19px;line-height:1.5;color:#f7f7f7;"
-        f"text-align:center;'>{examples_html}</div></div>"
-    )
-
-
 def create_anki_model() -> genanki.Model:
     """Create the Anki note model."""
-    model_id = int(hashlib.md5(b"FreqAnki-v10").hexdigest()[:8], 16)
+    # v11: Combined content block (meanings + grammar + examples in one)
+    model_id = int(hashlib.md5(b"FreqAnki-v11").hexdigest()[:8], 16)
 
     return genanki.Model(
         model_id,
@@ -212,8 +318,7 @@ def create_anki_model() -> genanki.Model:
             {"name": "Word"},
             {"name": "Rank"},
             {"name": "Romanization"},
-            {"name": "Meanings"},
-            {"name": "Examples"},
+            {"name": "Content"},
             {"name": "Audio"},
         ],
         templates=[
@@ -241,14 +346,12 @@ def create_anki_model() -> genanki.Model:
                     "<div style='font-size:48px;margin-bottom:8px;'>{{Word}}</div>"
                     "{{#Romanization}}<div style='padding:6px 14px;"
                     "border-radius:999px;border:1px solid #3a3a3a;background:#1f1f1f;"
-                    "color:#ffa6a6;font-size:15px;display:inline-block;'>"
+                    "color:#f9cf6c;font-size:15px;display:inline-block;'>"
                     "{{Romanization}}</div>{{/Romanization}}"
                     "</div>"
                     "{{#Audio}}<div style='text-align:center;margin-bottom:12px;'>"
                     "{{Audio}}</div>{{/Audio}}"
-                    "<div style='display:flex;justify-content:center;'>"
-                    "{{Meanings}}</div>"
-                    "{{Examples}}"
+                    "{{Content}}"
                     "</div>"
                 ),
             }
@@ -282,16 +385,14 @@ def create_deck(
     media_files: list[str] = []
 
     for data in words_data:
-        # Build field values
-        meanings_block = build_meanings_block(
+        # Build combined content block (meanings + grammar + examples)
+        content_block = build_card_content_block(
             data.translations or {},
             target_langs,
             data.morphology,
-        )
-
-        examples_block = build_examples_block(
             data.examples,
             data.literal_translations,
+            data.word_translations,
         )
 
         audio_field = ""
@@ -299,12 +400,24 @@ def create_deck(
             media_files.append(str(data.audio_path))
             audio_field = f"[sound:{data.audio_path.name}]"
 
+        # Build romanization badge: "word | romanization | ipa" (no labels)
+        romanization_parts: list[str] = []
+        if data.display_word:
+            romanization_parts.append(data.display_word)
+        if data.romanization:
+            romanization_parts.append(data.romanization)
+        if data.transliteration and data.transliteration != data.romanization:
+            # Remove brackets from IPA
+            ipa_clean = data.transliteration.strip("[]")
+            romanization_parts.append(ipa_clean)
+
+        romanization_field = " | ".join(romanization_parts) if romanization_parts else ""
+
         fields = [
             data.display_word,
             str(data.rank),
-            html.escape(data.romanization or ""),
-            meanings_block,
-            examples_block,
+            html.escape(romanization_field),
+            content_block,
             audio_field,
         ]
 
