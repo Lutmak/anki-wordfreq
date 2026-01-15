@@ -30,6 +30,9 @@ class GenerationConfig:
     # Show HTML preview before generating
     show_preview: bool = True
 
+    # Path to old deck for migration (preserves scheduling)
+    migrate_from: Path | None = None
+
     def __post_init__(self) -> None:
         if self.output_path is None:
             self.output_path = Path(f"FreqAnki_{self.source_lang}_Top_{self.num_words}.apkg")
@@ -101,6 +104,7 @@ class FreqAnkiConfig:
         literal: bool,
         output: Path | None,
         preview: bool,
+        migrate_from: Path | None = None,
     ) -> "FreqAnkiConfig":
         """Create config from CLI arguments."""
         return cls(
@@ -112,6 +116,7 @@ class FreqAnkiConfig:
                 include_literal=literal,
                 output_path=output,
                 show_preview=preview,
+                migrate_from=migrate_from,
             )
         )
 

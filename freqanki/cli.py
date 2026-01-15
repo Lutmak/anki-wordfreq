@@ -57,6 +57,11 @@ def main() -> None:
     is_flag=True,
     help="Skip HTML preview",
 )
+@click.option(
+    "--migrate", "-m",
+    type=click.Path(exists=True, path_type=Path),
+    help="Migrate from old deck (preserves Anki scheduling data)",
+)
 def generate(
     lang: str,
     targets: str,
@@ -65,6 +70,7 @@ def generate(
     literal: bool,
     output: Path | None,
     no_preview: bool,
+    migrate: Path | None,
 ) -> None:
     """Generate an Anki flashcard deck."""
     target_list = [t.strip() for t in targets.split(",") if t.strip()]
@@ -77,6 +83,7 @@ def generate(
         literal=literal,
         output=output,
         preview=not no_preview,
+        migrate_from=migrate,
     )
 
     try:

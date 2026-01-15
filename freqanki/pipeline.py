@@ -9,11 +9,13 @@ from freqanki.core.examples import collect_all_example_sentences
 from freqanki.core.kaikki import (
     ensure_dictionary,
     get_romanization_for_word,
+    get_transliteration_for_word,
     load_entries_for_words,
 )
+from freqanki.core.migration import load_guid_map, report_guid_coverage
 from freqanki.core.translations import (
     translate_glosses_to_targets,
-    translate_sentences_batch,
+    translate_words_literal,
 )
 from freqanki.core.words import get_frequency_words
 from freqanki.languages import get_language_module
@@ -56,10 +58,20 @@ def generate_deck(config: FreqAnkiConfig) -> str | None:
     console.print(f"Targets: [cyan]{', '.join(gen.target_langs)}[/cyan]")
     console.print(f"Words: [cyan]{gen.num_words}[/cyan]")
 
+    # Load GUID map for migration (if specified)
+    guid_map: dict[str, str] = {}
+    if gen.migrate_from:
+        console.print(f"Migration: [cyan]{gen.migrate_from.name}[/cyan]")
+        guid_map = load_guid_map(gen.migrate_from)
+
     # Phase 1: Word Acquisition
     print_header("Phase 1: Word Acquisition")
     words = get_frequency_words(lang_module, gen.num_words)
     console.print(f"[green]Got {len(words)} frequency words[/green]")
+
+    # Report migration coverage if applicable
+    if guid_map:
+        report_guid_coverage(guid_map, words)
 
     # Phase 2: Dictionary Loading
     print_header("Phase 2: Loading Dictionary")
@@ -80,7 +92,7 @@ def generate_deck(config: FreqAnkiConfig) -> str | None:
     # Phase 4: Example Collection
     print_header("Phase 4: Collecting Examples")
     examples_by_word: dict[str, list[tuple[str, str, str]]] = {}
-    literal_translations: dict[str, str] = {}
+    word_translations: dict[str, list[tuple[str, str]]] = {}
 
     if gen.num_examples > 0 and gen.target_langs:
         examples_by_word, unique_sentences = collect_all_example_sentences(
@@ -90,10 +102,9 @@ def generate_deck(config: FreqAnkiConfig) -> str | None:
             gen.num_examples,
         )
 
-        # Literal translations if enabled
+        # Word-by-word literal translations if enabled
         if gen.include_literal and unique_sentences and api.deepl_api_key:
-            console.print("[blue]Getting literal translations...[/blue]")
-            literal_translations = translate_sentences_batch(
+            word_translations = translate_words_literal(
                 unique_sentences,
                 gen.source_lang,
                 gen.target_langs[0],
@@ -125,6 +136,9 @@ def generate_deck(config: FreqAnkiConfig) -> str | None:
             if not romanization:
                 romanization = lang_module.get_romanization(word)
 
+            # Get transliteration from Kaikki (may include stress marks)
+            transliteration = get_transliteration_for_word(word, kaikki_entries)
+
             # Get morphology
             morph = lang_module.get_morphology(word)
             morph_dict = morph.to_dict() if morph else None
@@ -145,10 +159,11 @@ def generate_deck(config: FreqAnkiConfig) -> str | None:
                     rank=rank,
                     display_word=lang_module.get_display_word(word),
                     romanization=romanization,
+                    transliteration=transliteration,
                     morphology=morph_dict,
                     translations=translations,
                     examples=examples,
-                    literal_translations=literal_translations if examples else None,
+                    word_translations=word_translations if examples else None,
                     audio_path=audio_paths.get(word),
                 )
             )
@@ -174,7 +189,7 @@ def generate_deck(config: FreqAnkiConfig) -> str | None:
     if gen.output_path:
         deck_name = gen.output_path.stem
 
-    output_path = create_deck(words_data, deck_name, gen.target_langs)
+    output_path = create_deck(words_data, deck_name, gen.target_langs, guid_map)
 
     print_success(f"Done! Import {output_path} into Anki Desktop")
 

@@ -12,6 +12,33 @@ import genanki
 from freqanki.utils.console import console
 
 
+class StableGuidNote(genanki.Note):
+    """A Note subclass that supports custom GUIDs for migration.
+
+    When migrating from an old deck, we need to preserve the original GUIDs
+    so that Anki recognizes the notes as updates rather than new cards.
+    This preserves all scheduling data (intervals, ease factors, history).
+    """
+
+    def __init__(
+        self,
+        model: genanki.Model,
+        fields: list[str],
+        custom_guid: str | None = None,
+        tags: list[str] | None = None,
+    ):
+        super().__init__(model=model, fields=fields, tags=tags)
+        self._custom_guid = custom_guid
+
+    @property
+    def guid(self) -> str:
+        if self._custom_guid:
+            return self._custom_guid
+        # Default: hash first field only (the word) for stable generation
+        # This means regenerating the same word list produces same GUIDs
+        return genanki.guid_for(self.fields[0])
+
+
 @dataclass
 class WordData:
     """Data for a single flashcard word."""
@@ -61,11 +88,11 @@ def format_morphology_html(morph_info: dict | None) -> str:
             return
         rows.append(
             "<div style='display:flex;flex-direction:column;align-items:center;"
-            "padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.12);'>"
-            f"<span style='font-size:12px;text-transform:uppercase;"
+            "padding:4px 0;'>"
+            f"<span style='font-size:11px;text-transform:uppercase;"
             f"letter-spacing:1px;color:#a0a0a0;'>{label}</span>"
-            f"<span style='font-size:20px;font-weight:600;color:#fdfdfd;"
-            f"margin-top:4px;text-align:center;'>{html.escape(str(value))}</span>"
+            f"<span style='font-size:18px;font-weight:600;color:#fdfdfd;"
+            f"margin-top:2px;text-align:center;'>{html.escape(str(value))}</span>"
             "</div>"
         )
 
@@ -86,12 +113,12 @@ def format_morphology_html(morph_info: dict | None) -> str:
     # Dynamic grid: 1 col for 1-2 items, 3 cols for 3+ items (2 rows x 3 cols)
     if len(rows) <= 2:
         container_style = (
-            "display:flex;flex-direction:column;gap:4px;margin-top:8px;text-align:center;"
+            "display:flex;flex-direction:column;gap:2px;margin-top:4px;text-align:center;"
         )
     else:
         container_style = (
-            "display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;"
-            "margin-top:8px;text-align:center;"
+            "display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;"
+            "margin-top:4px;text-align:center;"
         )
 
     return f"<div style='{container_style}'>" + "".join(rows) + "</div>"
@@ -202,12 +229,12 @@ def format_examples_html(
             num_cols = len(source_cells)
 
             # Label cell style - subtle and unobtrusive
-            label_cell_style = "padding:2px 6px;text-align:right;vertical-align:middle;"
+            label_cell_style = "padding:2px 4px;text-align:right;vertical-align:middle;"
 
-            # Table with simple text labels at start of each row
+            # Table centered with flex
             block = (
-                "<div style='margin:10px 0;text-align:center;'>"
-                "<table style='display:inline-table;border-collapse:collapse;background:#1a1a1a;"
+                "<div style='margin:10px 0;display:flex;justify-content:center;'>"
+                "<table style='border-collapse:collapse;background:#1a1a1a;"
                 "border-radius:8px;overflow:hidden;'>"
                 # Row 1: RUSSIAN [source words]
                 f"<tr><td style='{label_cell_style}{label_style}'>RUSSIAN</td>"
@@ -250,6 +277,9 @@ def format_examples_html(
 
 
 def build_card_content_block(
+    word: str,
+    audio_html: str,
+    romanization: str,
     translations: dict[str, str],
     target_langs: list[str],
     morphology: dict | None,
@@ -267,19 +297,32 @@ def build_card_content_block(
         "text-transform:uppercase;letter-spacing:1px;font-size:14px;"
         "color:#f9cf6c;text-align:center;"
     )
-    # Divider style
+    # Divider style - tighter spacing
     divider = (
         "<div style='width:100%;height:1px;background:rgba(249,207,108,0.25);"
-        "margin:12px 0 8px;'></div>"
+        "margin:6px 0;'></div>"
     )
 
-    # Start container
-    block = (
-        "<div style='text-align:left;background:#1f1f1f;border:1px solid #2f2f2f;"
-        "border-radius:14px;padding:16px 20px;margin:14px auto;max-width:650px;'>"
+    # No container - content directly on card
+    block = ""
+
+    # Unnamed section: Word + Audio + Romanization
+    block += (
+        "<div style='display:flex;justify-content:center;align-items:center;"
+        f"gap:16px;'>"
+        f"<span style='font-size:48px;'>{html.escape(word)}</span>"
     )
+    if audio_html:
+        block += f"<span>{audio_html}</span>"
+    block += "</div>"
+    if romanization:
+        block += (
+            f"<div style='text-align:center;color:#a0a0a0;font-size:14px;"
+            f"margin-top:4px;'>{html.escape(romanization)}</div>"
+        )
 
     # Possible Meanings section
+    block += divider
     block += (
         f"<div style='{title_style}'>Possible Meanings</div>"
         "<div style='margin-top:4px;font-size:19px;line-height:1.4;color:#f7f7f7;"
@@ -302,14 +345,13 @@ def build_card_content_block(
         f"text-align:center;'>{examples_html}</div>"
     )
 
-    block += "</div>"
     return block
 
 
 def create_anki_model() -> genanki.Model:
     """Create the Anki note model."""
-    # v11: Combined content block (meanings + grammar + examples in one)
-    model_id = int(hashlib.md5(b"FreqAnki-v11").hexdigest()[:8], 16)
+    # v13: All content in one container (word+audio+romanization + meanings + grammar + examples)
+    model_id = int(hashlib.md5(b"FreqAnki-v13").hexdigest()[:8], 16)
 
     return genanki.Model(
         model_id,
@@ -317,7 +359,6 @@ def create_anki_model() -> genanki.Model:
         fields=[
             {"name": "Word"},
             {"name": "Rank"},
-            {"name": "Romanization"},
             {"name": "Content"},
             {"name": "Audio"},
         ],
@@ -340,17 +381,7 @@ def create_anki_model() -> genanki.Model:
                 ),
                 "afmt": (
                     "<div style='font-family:Arial,sans-serif;background:#111;"
-                    "color:#fff;padding:32px;border-radius:16px;'>"
-                    # Header with word and romanization
-                    "<div style='text-align:center;margin-bottom:12px;'>"
-                    "<div style='font-size:48px;margin-bottom:8px;'>{{Word}}</div>"
-                    "{{#Romanization}}<div style='padding:6px 14px;"
-                    "border-radius:999px;border:1px solid #3a3a3a;background:#1f1f1f;"
-                    "color:#f9cf6c;font-size:15px;display:inline-block;'>"
-                    "{{Romanization}}</div>{{/Romanization}}"
-                    "</div>"
-                    "{{#Audio}}<div style='text-align:center;margin-bottom:12px;'>"
-                    "{{Audio}}</div>{{/Audio}}"
+                    "color:#fff;padding:10px 20px;border-radius:16px;'>"
                     "{{Content}}"
                     "</div>"
                 ),
@@ -363,6 +394,7 @@ def create_deck(
     words_data: list[WordData],
     deck_name: str,
     target_langs: list[str],
+    guid_map: dict[str, str] | None = None,
 ) -> str:
     """
     Create an Anki deck from word data.
@@ -371,10 +403,12 @@ def create_deck(
         words_data: List of WordData objects
         deck_name: Name for the deck
         target_langs: Target languages for ordering meanings
+        guid_map: Optional mapping of word -> GUID for migration
 
     Returns:
         Path to created .apkg file
     """
+    guid_map = guid_map or {}
     console.print(f"[blue]Creating Anki deck: {deck_name}[/blue]")
 
     # Create deck
@@ -385,8 +419,30 @@ def create_deck(
     media_files: list[str] = []
 
     for data in words_data:
-        # Build combined content block (meanings + grammar + examples)
+        # Build audio field
+        audio_field = ""
+        audio_html = ""
+        if data.audio_path and data.audio_path.exists():
+            media_files.append(str(data.audio_path))
+            audio_field = f"[sound:{data.audio_path.name}]"
+            audio_html = audio_field
+
+        # Build romanization legend with labels (no "Russian:" since word is shown)
+        romanization_parts: list[str] = []
+        if data.romanization:
+            romanization_parts.append("Romanization: " + data.romanization)
+        if data.transliteration and data.transliteration != data.romanization:
+            # Remove brackets from IPA
+            ipa_clean = data.transliteration.strip("[]")
+            romanization_parts.append("Ipa: " + ipa_clean)
+
+        romanization_text = " | ".join(romanization_parts) if romanization_parts else ""
+
+        # Build combined content block (word + audio + romanization + meanings + grammar + examples)
         content_block = build_card_content_block(
+            data.display_word,
+            audio_html,
+            romanization_text,
             data.translations or {},
             target_langs,
             data.morphology,
@@ -395,33 +451,17 @@ def create_deck(
             data.word_translations,
         )
 
-        audio_field = ""
-        if data.audio_path and data.audio_path.exists():
-            media_files.append(str(data.audio_path))
-            audio_field = f"[sound:{data.audio_path.name}]"
-
-        # Build romanization badge: "word | romanization | ipa" (no labels)
-        romanization_parts: list[str] = []
-        if data.display_word:
-            romanization_parts.append(data.display_word)
-        if data.romanization:
-            romanization_parts.append(data.romanization)
-        if data.transliteration and data.transliteration != data.romanization:
-            # Remove brackets from IPA
-            ipa_clean = data.transliteration.strip("[]")
-            romanization_parts.append(ipa_clean)
-
-        romanization_field = " | ".join(romanization_parts) if romanization_parts else ""
-
         fields = [
             data.display_word,
             str(data.rank),
-            html.escape(romanization_field),
             content_block,
             audio_field,
         ]
 
-        deck.add_note(genanki.Note(model=model, fields=fields))
+        # Use GUID from old deck if available (for migration)
+        # Falls back to stable hash of the word
+        custom_guid = guid_map.get(data.display_word)
+        deck.add_note(StableGuidNote(model=model, fields=fields, custom_guid=custom_guid))
 
     # Save package
     output_path = f"{deck_name.replace(' ', '_')}.apkg"
