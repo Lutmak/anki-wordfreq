@@ -1,7 +1,5 @@
 """Main pipeline orchestration for FreqAnki deck generation."""
 
-from pathlib import Path
-
 from freqanki.config import FreqAnkiConfig
 from freqanki.core.audio import get_audio_for_words
 from freqanki.core.deck import WordData, create_deck
@@ -15,6 +13,7 @@ from freqanki.core.kaikki import (
 from freqanki.core.migration import load_guid_map, report_guid_coverage
 from freqanki.core.translations import (
     translate_glosses_to_targets,
+    translate_sentences_batch,
     translate_words_literal,
 )
 from freqanki.core.words import get_frequency_words
@@ -92,25 +91,86 @@ def generate_deck(config: FreqAnkiConfig) -> str | None:
     # Phase 4: Example Collection
     print_header("Phase 4: Collecting Examples")
     examples_by_word: dict[str, list[tuple[str, str, str]]] = {}
+    literal_translations: dict[str, str] = {}
     word_translations: dict[str, list[tuple[str, str]]] = {}
+    backup_sentences: dict[str, list[tuple[str, str, str]]] = {}
 
     if gen.num_examples > 0 and gen.target_langs:
-        examples_by_word, unique_sentences = collect_all_example_sentences(
+        examples_by_word, unique_sentences, backup_sentences = collect_all_example_sentences(
             words,
             gen.source_lang,
             gen.target_langs[0],
             gen.num_examples,
         )
 
-        # Word-by-word literal translations if enabled
+        # Word-by-word translations if enabled and API key available
         if gen.include_literal and unique_sentences and api.deepl_api_key:
-            word_translations = translate_words_literal(
+            console.print("[blue]Getting word-by-word translations...[/blue]")
+            word_translations, failed_sentences = translate_words_literal(
                 unique_sentences,
                 gen.source_lang,
                 gen.target_langs[0],
                 api.deepl_api_key,
                 api.deepl_endpoint,
             )
+
+            # Retry failed sentences with backup candidates
+            if failed_sentences:
+                console.print(
+                    f"[yellow]{len(failed_sentences)} sentences had untranslated words, trying backups...[/yellow]"
+                )
+
+                # Find which words need replacement sentences
+                retry_sentences: list[str] = []
+                for word, word_examples in examples_by_word.items():
+                    for i, (source, target, matched) in enumerate(word_examples):
+                        if source in failed_sentences:
+                            # Try to swap with a backup
+                            if backup_sentences.get(word):
+                                backup = backup_sentences[word].pop(0)
+                                examples_by_word[word][i] = backup
+                                if backup[0] not in word_translations:
+                                    retry_sentences.append(backup[0])
+
+                # Translate retry sentences
+                if retry_sentences:
+                    console.print(
+                        f"[blue]Translating {len(retry_sentences)} replacement sentences...[/blue]"
+                    )
+                    retry_translations, retry_failed = translate_words_literal(
+                        retry_sentences,
+                        gen.source_lang,
+                        gen.target_langs[0],
+                        api.deepl_api_key,
+                        api.deepl_endpoint,
+                    )
+                    word_translations.update(retry_translations)
+                    if retry_failed:
+                        console.print(
+                            f"[yellow]  {len(retry_failed)} replacement sentences also failed[/yellow]"
+                        )
+
+            # Fallback: sentence-level translations for sentences not covered
+            # (e.g., those with fewer than min_words)
+            all_current_sentences = set()
+            for word_examples in examples_by_word.values():
+                for source, _, _ in word_examples:
+                    all_current_sentences.add(source)
+
+            sentences_needing_fallback = [
+                s for s in all_current_sentences if s not in word_translations
+            ]
+            if sentences_needing_fallback:
+                console.print(
+                    f"[blue]Getting fallback translations for {len(sentences_needing_fallback)} shorter sentences...[/blue]"
+                )
+                literal_translations = translate_sentences_batch(
+                    sentences_needing_fallback,
+                    gen.source_lang,
+                    gen.target_langs[0],
+                    api.deepl_api_key,
+                    api.deepl_endpoint,
+                )
 
     # Phase 5: Audio Retrieval
     print_header("Phase 5: Getting Audio")
@@ -136,7 +196,7 @@ def generate_deck(config: FreqAnkiConfig) -> str | None:
             if not romanization:
                 romanization = lang_module.get_romanization(word)
 
-            # Get transliteration from Kaikki (may include stress marks)
+            # Get IPA/transliteration from Kaikki
             transliteration = get_transliteration_for_word(word, kaikki_entries)
 
             # Get morphology
@@ -153,6 +213,17 @@ def generate_deck(config: FreqAnkiConfig) -> str | None:
             # Get examples
             examples = examples_by_word.get(word, [])
 
+            # Get word translations for this word's examples
+            word_trans_for_word: dict[str, list[tuple[str, str]]] | None = None
+            if word_translations and examples:
+                word_trans_for_word = {
+                    src: word_translations[src]
+                    for src, _, _ in examples
+                    if src in word_translations
+                }
+                if not word_trans_for_word:
+                    word_trans_for_word = None
+
             words_data.append(
                 WordData(
                     word=word,
@@ -163,7 +234,8 @@ def generate_deck(config: FreqAnkiConfig) -> str | None:
                     morphology=morph_dict,
                     translations=translations,
                     examples=examples,
-                    word_translations=word_translations if examples else None,
+                    literal_translations=literal_translations if examples else None,
+                    word_translations=word_trans_for_word,
                     audio_path=audio_paths.get(word),
                 )
             )

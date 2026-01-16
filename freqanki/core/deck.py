@@ -2,7 +2,6 @@
 
 import hashlib
 import html
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -87,12 +86,9 @@ def format_morphology_html(morph_info: dict | None) -> str:
         if not value:
             return
         rows.append(
-            "<div style='display:flex;flex-direction:column;align-items:center;"
-            "padding:4px 0;'>"
-            f"<span style='font-size:11px;text-transform:uppercase;"
-            f"letter-spacing:1px;color:#a0a0a0;'>{label}</span>"
-            f"<span style='font-size:18px;font-weight:600;color:#fdfdfd;"
-            f"margin-top:2px;text-align:center;'>{html.escape(str(value))}</span>"
+            "<div style='display:flex;flex-direction:column;align-items:center;padding:4px 0;'>"
+            f"<span style='font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#a0a0a0;'>{label}</span>"
+            f"<span style='font-size:18px;font-weight:600;color:#fdfdfd;margin-top:2px;text-align:center;'>{html.escape(str(value))}</span>"
             "</div>"
         )
 
@@ -110,14 +106,25 @@ def format_morphology_html(morph_info: dict | None) -> str:
     if not rows:
         return ""
 
-    # Dynamic grid: 1 col for 1-2 items, 3 cols for 3+ items (2 rows x 3 cols)
-    if len(rows) <= 2:
+    # Dynamic grid layout:
+    # 1-2 items: single column (stack)
+    # 3-4 items: 2 columns × 2 rows
+    # 5-6 items: 3 columns × 2 rows
+    num_items = len(rows)
+    if num_items <= 2:
+        # Single column stack
         container_style = (
             "display:flex;flex-direction:column;gap:2px;margin-top:4px;text-align:center;"
         )
-    else:
+    elif num_items <= 4:
+        # 2 columns grid
         container_style = (
-            "display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;"
+            "display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;text-align:center;"
+        )
+    else:
+        # 3 columns grid (2 rows × 3 cols)
+        container_style = (
+            "display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;"
             "margin-top:4px;text-align:center;"
         )
 
@@ -217,9 +224,7 @@ def format_examples_html(
     blocks: list[str] = []
 
     # Simple label style - subtle text, no background
-    label_style = (
-        "font-size:10px;letter-spacing:0.5px;color:#666;text-transform:uppercase;"
-    )
+    label_style = "font-size:10px;letter-spacing:0.5px;color:#666;text-transform:uppercase;"
 
     for src, tgt, matched in examples:
         # Check if we have word-by-word translations for this sentence
@@ -231,17 +236,19 @@ def format_examples_html(
             # Label cell style - subtle and unobtrusive
             label_cell_style = "padding:2px 4px;text-align:right;vertical-align:middle;"
 
-            # Table centered with flex
+            # Table with simple text labels at start of each row
             block = (
                 "<div style='margin:10px 0;display:flex;justify-content:center;'>"
                 "<table style='border-collapse:collapse;background:#1a1a1a;"
                 "border-radius:8px;overflow:hidden;'>"
                 # Row 1: RUSSIAN [source words]
                 f"<tr><td style='{label_cell_style}{label_style}'>RUSSIAN</td>"
-                + "".join(source_cells) + "</tr>"
+                + "".join(source_cells)
+                + "</tr>"
                 # Row 2: LITERALLY [translations]
                 f"<tr><td style='{label_cell_style}{label_style}'>LITERALLY</td>"
-                + "".join(trans_cells) + "</tr>"
+                + "".join(trans_cells)
+                + "</tr>"
                 # Row 3: ENGLISH [natural translation]
                 f"<tr><td style='{label_cell_style}{label_style}'>ENGLISH</td>"
                 f"<td colspan='{num_cols}' style='padding:4px 10px;"
@@ -277,9 +284,10 @@ def format_examples_html(
 
 
 def build_card_content_block(
-    word: str,
-    audio_html: str,
+    display_word: str,
+    audio_field: str,
     romanization: str,
+    ipa: str,
     translations: dict[str, str],
     target_langs: list[str],
     morphology: dict | None,
@@ -287,7 +295,19 @@ def build_card_content_block(
     literal_translations: dict[str, str] | None = None,
     word_translations: dict[str, list[tuple[str, str]]] | None = None,
 ) -> str:
-    """Build the complete card content block with all sections in one container."""
+    """
+    Build the complete card content block with header and all sections.
+
+    This generates the full card content including:
+    1. Word + Audio (header, centered)
+    2. Romanization line
+    3. Divider
+    4. Possible Meanings section
+    5. Divider
+    6. Grammar Notes section (if available)
+    7. Divider
+    8. Usage Examples section
+    """
     meanings_html = format_meanings_html(translations, target_langs)
     morph_html = format_morphology_html(morphology)
     examples_html = format_examples_html(examples, literal_translations, word_translations)
@@ -297,32 +317,37 @@ def build_card_content_block(
         "text-transform:uppercase;letter-spacing:1px;font-size:14px;"
         "color:#f9cf6c;text-align:center;"
     )
-    # Divider style - tighter spacing
+    # Divider style
     divider = (
-        "<div style='width:100%;height:1px;background:rgba(249,207,108,0.25);"
-        "margin:6px 0;'></div>"
+        "<div style='width:100%;height:1px;background:rgba(249,207,108,0.25);margin:6px 0;'></div>"
     )
 
-    # No container - content directly on card
-    block = ""
-
-    # Unnamed section: Word + Audio + Romanization
-    block += (
-        "<div style='display:flex;justify-content:center;align-items:center;"
-        f"gap:16px;'>"
-        f"<span style='font-size:48px;'>{html.escape(word)}</span>"
+    # Start with header: Word + Audio
+    block = (
+        "<div style='display:flex;justify-content:center;align-items:center;gap:16px;'>"
+        f"<span style='font-size:48px;'>{html.escape(display_word)}</span>"
+        f"<span>{audio_field}</span>"
+        "</div>"
     )
-    if audio_html:
-        block += f"<span>{audio_html}</span>"
-    block += "</div>"
+
+    # Romanization line
+    rom_parts: list[str] = []
     if romanization:
+        rom_parts.append(f"Romanization: {html.escape(romanization)}")
+    if ipa:
+        rom_parts.append(f"Ipa: {html.escape(ipa)}")
+
+    if rom_parts:
         block += (
-            f"<div style='text-align:center;color:#a0a0a0;font-size:14px;"
-            f"margin-top:4px;'>{html.escape(romanization)}</div>"
+            "<div style='text-align:center;color:#a0a0a0;font-size:14px;margin-top:4px;'>"
+            f"{' | '.join(rom_parts)}"
+            "</div>"
         )
 
-    # Possible Meanings section
+    # Divider before sections
     block += divider
+
+    # Possible Meanings section
     block += (
         f"<div style='{title_style}'>Possible Meanings</div>"
         "<div style='margin-top:4px;font-size:19px;line-height:1.4;color:#f7f7f7;"
@@ -350,8 +375,8 @@ def build_card_content_block(
 
 def create_anki_model() -> genanki.Model:
     """Create the Anki note model."""
-    # v13: All content in one container (word+audio+romanization + meanings + grammar + examples)
-    model_id = int(hashlib.md5(b"FreqAnki-v13").hexdigest()[:8], 16)
+    # v11: Combined content block (meanings + grammar + examples in one)
+    model_id = int(hashlib.md5(b"FreqAnki-v11").hexdigest()[:8], 16)
 
     return genanki.Model(
         model_id,
@@ -359,6 +384,7 @@ def create_anki_model() -> genanki.Model:
         fields=[
             {"name": "Word"},
             {"name": "Rank"},
+            {"name": "Romanization"},
             {"name": "Content"},
             {"name": "Audio"},
         ],
@@ -381,7 +407,7 @@ def create_anki_model() -> genanki.Model:
                 ),
                 "afmt": (
                     "<div style='font-family:Arial,sans-serif;background:#111;"
-                    "color:#fff;padding:10px 20px;border-radius:16px;'>"
+                    "color:#fff;padding:32px;border-radius:16px;'>"
                     "{{Content}}"
                     "</div>"
                 ),
@@ -419,41 +445,34 @@ def create_deck(
     media_files: list[str] = []
 
     for data in words_data:
-        # Build audio field
         audio_field = ""
-        audio_html = ""
         if data.audio_path and data.audio_path.exists():
             media_files.append(str(data.audio_path))
             audio_field = f"[sound:{data.audio_path.name}]"
-            audio_html = audio_field
 
-        # Build romanization legend with labels (no "Russian:" since word is shown)
-        romanization_parts: list[str] = []
-        if data.romanization:
-            romanization_parts.append("Romanization: " + data.romanization)
-        if data.transliteration and data.transliteration != data.romanization:
-            # Remove brackets from IPA
-            ipa_clean = data.transliteration.strip("[]")
-            romanization_parts.append("Ipa: " + ipa_clean)
+        # Get IPA from transliteration (strip brackets)
+        ipa = ""
+        if data.transliteration:
+            ipa = data.transliteration.strip("[]")
 
-        romanization_text = " | ".join(romanization_parts) if romanization_parts else ""
-
-        # Build combined content block (word + audio + romanization + meanings + grammar + examples)
+        # Build combined content block with header (word + audio + romanization + all sections)
         content_block = build_card_content_block(
-            data.display_word,
-            audio_html,
-            romanization_text,
-            data.translations or {},
-            target_langs,
-            data.morphology,
-            data.examples,
-            data.literal_translations,
-            data.word_translations,
+            display_word=data.display_word,
+            audio_field=audio_field,
+            romanization=data.romanization or "",
+            ipa=ipa,
+            translations=data.translations or {},
+            target_langs=target_langs,
+            morphology=data.morphology,
+            examples=data.examples,
+            literal_translations=data.literal_translations,
+            word_translations=data.word_translations,
         )
 
         fields = [
             data.display_word,
             str(data.rank),
+            "",  # Romanization field (now embedded in Content)
             content_block,
             audio_field,
         ]

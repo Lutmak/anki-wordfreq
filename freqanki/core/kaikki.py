@@ -363,3 +363,41 @@ def get_romanization_for_word(
                 return match.group(1)
 
     return None
+
+
+def get_transliteration_for_word(
+    word: str,
+    grouped_entries: dict[str, list[dict]],
+) -> str | None:
+    """
+    Get transliteration for a word from Kaikki entries.
+
+    This may include stress marks or other annotations not in the romanization.
+
+    Args:
+        word: Word to look up
+        grouped_entries: Pre-loaded entries grouped by word
+
+    Returns:
+        Transliteration or None
+    """
+    entries = grouped_entries.get(word.lower())
+    if not entries:
+        return None
+
+    sorted_entries = sorted(entries, key=_entry_sort_key)
+
+    for entry in sorted_entries:
+        # Check forms for transliteration tag
+        for form in entry.get("forms", []) or []:
+            tags = form.get("tags") or []
+            if "transliteration" in tags and form.get("form"):
+                return form["form"]
+
+        # Check sounds for IPA (can serve as transliteration)
+        for sound in entry.get("sounds", []) or []:
+            ipa = sound.get("ipa")
+            if ipa:
+                return ipa
+
+    return None

@@ -35,7 +35,11 @@ class GenerationConfig:
 
     def __post_init__(self) -> None:
         if self.output_path is None:
-            self.output_path = Path(f"FreqAnki_{self.source_lang}_Top_{self.num_words}.apkg")
+            # When migrating, use same filename as input for Anki to recognize as update
+            if self.migrate_from:
+                self.output_path = Path(self.migrate_from.name)
+            else:
+                self.output_path = Path(f"FreqAnki_{self.source_lang}_Top_{self.num_words}.apkg")
 
 
 @dataclass
@@ -43,9 +47,7 @@ class APIConfig:
     """Configuration for external API services."""
 
     # DeepL API key (from environment or config)
-    deepl_api_key: str = field(
-        default_factory=lambda: os.getenv("DEEPL_API_KEY", "")
-    )
+    deepl_api_key: str = field(default_factory=lambda: os.getenv("DEEPL_API_KEY", ""))
 
     # DeepL API endpoint (free vs pro)
     deepl_endpoint: str = "https://api-free.deepl.com/v2/translate"

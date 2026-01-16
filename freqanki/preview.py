@@ -28,41 +28,34 @@ def create_preview_html(
     cards_json = []
 
     for data in words_data:
+        # Get IPA from transliteration (strip brackets)
+        ipa = ""
+        if data.transliteration:
+            ipa = data.transliteration.strip("[]")
+
         # Use the same HTML generation as Anki cards for consistency
         content_html = build_card_content_block(
-            data.translations or {},
-            target_langs,
-            data.morphology,
-            data.examples,
-            data.literal_translations,
-            data.word_translations,
+            display_word=data.display_word,
+            audio_field="🔊" if data.audio_path else "",
+            romanization=data.romanization or "",
+            ipa=ipa,
+            translations=data.translations or {},
+            target_langs=target_langs,
+            morphology=data.morphology,
+            examples=data.examples,
+            literal_translations=data.literal_translations,
+            word_translations=data.word_translations,
         )
-
-        # Build romanization: "word | romanization | ipa" (no labels)
-        romanization_parts: list[str] = []
-        #TODO: instead of hardcoding "Russian:", get language name from lang module
-        if data.display_word:
-            romanization_parts.append("Russian: " + data.display_word)
-        if data.romanization:
-            romanization_parts.append("Romanization: " + data.romanization)
-        if data.transliteration and data.transliteration != data.romanization:
-            # Remove brackets from IPA
-            ipa_clean = data.transliteration.strip("[]")
-            romanization_parts.append("Ipa: " + ipa_clean)
-
-        romanization_display = " | ".join(romanization_parts) if romanization_parts else ""
 
         cards_json.append(
             {
                 "word": data.display_word,
                 "rank": data.rank,
-                "romanization": romanization_display,
-                "audio": "Audio" if data.audio_path else "",
                 "content": content_html,
             }
         )
 
-    html_content = f'''<!DOCTYPE html>
+    html_content = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -78,21 +71,21 @@ def create_preview_html(
             color: #fff;
         }}
         .container {{ max-width: 900px; margin: 0 auto; }}
-        .card {{
+        .front-card {{
             background: #111;
             border-radius: 16px;
             padding: 32px;
             margin: 18px 0;
             box-shadow: 0 8px 30px rgba(0,0,0,0.35);
         }}
-        .word {{ font-size: 68px; margin: 20px 0 14px; }}
-        .meta-row {{
-            display: flex;
-            justify-content: center;
-            gap: 12px;
-            flex-wrap: wrap;
-            margin: 16px 0 10px;
+        .back-card {{
+            background: #111;
+            border-radius: 16px;
+            padding: 32px;
+            margin: 18px 0;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.35);
         }}
+        .word {{ font-size: 64px; margin: 12px 0 6px; }}
         .chip {{
             display: inline-flex;
             align-items: center;
@@ -102,18 +95,8 @@ def create_preview_html(
             background: #1f1f1f;
             border: 1px solid #3a3a3a;
             font-size: 15px;
+            color: #f9cf6c;
         }}
-        .chip.roman {{
-            font-size: 12px;
-            letter-spacing: 1px;
-            color: #0f0f0f;
-            background: #f9cf6c;
-            border-radius: 999px;
-            padding: 4px 10px;
-            border: none;
-        }}
-        .chip.rank {{ color: #f9cf6c; }}
-        .audio-line {{ color: #4CAF50; margin: 8px 0; font-size: 16px; min-height: 20px; }}
         .nav {{
             margin: 30px 0;
             display: flex;
@@ -145,19 +128,14 @@ def create_preview_html(
             <button onclick="nextCard()">Next</button>
         </div>
 
-        <div class="card">
+        <div class="front-card">
             <div class="word" id="front-word"></div>
-            <div class="audio-line" id="front-audio"></div>
-            <div class="meta-row">
-                <div class="chip rank" id="front-rank"></div>
+            <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:12px;">
+                <div class="chip" id="front-rank"></div>
             </div>
         </div>
 
-        <div class="card">
-            <div class="meta-row">
-                <div class="chip roman" id="back-romanization"></div>
-            </div>
-            <div class="audio-line" id="back-audio"></div>
+        <div class="back-card">
             <div id="content"></div>
         </div>
 
@@ -170,39 +148,12 @@ def create_preview_html(
         const cards = {json.dumps(cards_json)};
         let currentIndex = 0;
 
-        function setChip(id, text) {{
-            const el = document.getElementById(id);
-            if (!el) return;
-            if (text) {{
-                el.textContent = text;
-                el.style.display = 'inline-flex';
-            }} else {{
-                el.textContent = '';
-                el.style.display = 'none';
-            }}
-        }}
-
-        function setLine(id, text) {{
-            const el = document.getElementById(id);
-            if (!el) return;
-            if (text) {{
-                el.textContent = text;
-                el.style.display = 'block';
-            }} else {{
-                el.textContent = '';
-                el.style.display = 'none';
-            }}
-        }}
-
         function showCard(index) {{
             const card = cards[index];
 
             document.getElementById('front-word').textContent = card.word;
-            setLine('front-audio', card.audio);
-            setChip('front-rank', 'Rank #' + card.rank);
+            document.getElementById('front-rank').textContent = 'Rank #' + card.rank;
             document.getElementById('content').innerHTML = card.content;
-            setLine('back-audio', card.audio);
-            setChip('back-romanization', card.romanization ? card.romanization : '');
 
             document.getElementById('current').textContent = index + 1;
             document.getElementById('total').textContent = cards.length;
@@ -230,7 +181,7 @@ def create_preview_html(
         showCard(0);
     </script>
 </body>
-</html>'''
+</html>"""
 
     # Write to temp file
     with tempfile.NamedTemporaryFile(
