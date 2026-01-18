@@ -1,10 +1,16 @@
-"""Tatoeba example sentence collection."""
+"""Tatoeba example sentence collection with caching."""
 
+import hashlib
+import json
 import re
 from collections import defaultdict
+from pathlib import Path
 
 from freqanki.config import TATOEBA_CODES
 from freqanki.utils.console import console, create_progress
+
+# Cache directory for corpus data
+CACHE_DIR = Path.home() / ".cache" / "freqanki"
 
 
 def compile_word_pattern(word: str) -> re.Pattern:
@@ -38,20 +44,194 @@ def _merge_particles_count(words: list[str]) -> int:
     return count
 
 
+def _get_corpus_cache_path(source_lang: str, target_lang: str, min_word_groups: int) -> Path:
+    """Get the cache file path for a language pair."""
+    src = TATOEBA_CODES.get(source_lang, source_lang)
+    tgt = TATOEBA_CODES.get(target_lang, target_lang)
+    return CACHE_DIR / f"corpus_{src}_{tgt}_min{min_word_groups}.json"
+
+
+def _load_corpus_cache(
+    source_lang: str, target_lang: str, min_word_groups: int
+) -> dict[str, list[tuple[str, str]]] | None:
+    """
+    Load cached corpus data if available.
+
+    Returns:
+        Dict mapping lowercase word to list of (source, target) sentence pairs,
+        or None if cache doesn't exist.
+    """
+    cache_path = _get_corpus_cache_path(source_lang, target_lang, min_word_groups)
+    if not cache_path.exists():
+        return None
+
+    try:
+        console.print(f"[cyan]Loading cached corpus from {cache_path.name}...[/cyan]")
+        with open(cache_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # Convert lists back to tuples
+        result: dict[str, list[tuple[str, str]]] = {}
+        for word, sentences in data.items():
+            result[word] = [(s[0], s[1]) for s in sentences]
+
+        console.print(f"[green]  Loaded {len(result)} words from cache[/green]")
+        return result
+    except Exception as e:
+        console.print(f"[yellow]Cache load failed: {e}[/yellow]")
+        return None
+
+
+def _save_corpus_cache(
+    source_lang: str,
+    target_lang: str,
+    min_word_groups: int,
+    word_sentences: dict[str, list[tuple[str, str]]],
+) -> None:
+    """Save corpus data to cache."""
+    cache_path = _get_corpus_cache_path(source_lang, target_lang, min_word_groups)
+
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Convert to JSON-serializable format
+        data = {word: list(sentences) for word, sentences in word_sentences.items()}
+
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+
+        console.print(f"[green]  Cached {len(data)} words to {cache_path.name}[/green]")
+    except Exception as e:
+        console.print(f"[yellow]Cache save failed: {e}[/yellow]")
+
+
+def _scan_corpus_for_all_words(
+    source_lang: str,
+    target_lang: str,
+    min_word_groups: int,
+) -> dict[str, list[tuple[str, str]]]:
+    """
+    Scan the entire Tatoeba corpus and index ALL words.
+
+    This is expensive (~13 min) but results are cached for reuse.
+
+    Returns:
+        Dict mapping lowercase word to list of (source, target) sentence pairs,
+        sorted by sentence length (shortest first).
+    """
+    from tatoebatools import ParallelCorpus
+
+    src = TATOEBA_CODES.get(source_lang, source_lang)
+    tgt = TATOEBA_CODES.get(target_lang, target_lang)
+
+    # Index: word -> list of (source, target, length)
+    word_index: dict[str, list[tuple[str, str, int]]] = defaultdict(list)
+
+    console.print(f"[blue]Scanning Tatoeba corpus ({src}-{tgt})...[/blue]")
+    console.print("[yellow]  This will be cached for future runs.[/yellow]")
+
+    corpus = ParallelCorpus(src, tgt)
+
+    with create_progress() as progress:
+        task = progress.add_task("Scanning corpus...", total=None)
+        count = 0
+        valid_count = 0
+
+        for sentence, translation in corpus:
+            text = sentence.text
+            translated = translation.text if translation else ""
+
+            # Check if sentence has enough word groups
+            tokenized = _tokenize_sentence(text)
+            word_group_count = _merge_particles_count(tokenized)
+
+            if word_group_count < min_word_groups:
+                continue
+
+            valid_count += 1
+            length = len(text)
+
+            # Index by each word in the sentence (lowercase)
+            for word in set(w.lower() for w in tokenized):
+                word_index[word].append((text, translated, length))
+
+            count += 1
+            if count % 50000 == 0:
+                progress.update(
+                    task,
+                    description=f"Scanning corpus... ({valid_count} valid sentences, {len(word_index)} unique words)",
+                )
+
+    console.print(
+        f"[green]  Scanned {valid_count} valid sentences, indexed {len(word_index)} words[/green]"
+    )
+
+    # Sort each word's sentences by length and keep only (source, target)
+    result: dict[str, list[tuple[str, str]]] = {}
+    for word, sentences in word_index.items():
+        # Sort by length, keep top sentences (limit to avoid huge cache)
+        sentences.sort(key=lambda x: x[2])
+        result[word] = [(s[0], s[1]) for s in sentences[:50]]  # Keep top 50 per word
+
+    return result
+
+
+def _select_diverse_examples(
+    candidates: list[tuple[str, str, str]],
+    target_word: str,
+    max_examples: int,
+) -> list[tuple[str, str, str]]:
+    """
+    Select diverse examples that don't share words besides the target word.
+
+    Args:
+        candidates: List of (source, target, matched_word) tuples
+        target_word: The word being exemplified
+        max_examples: Maximum number to select
+
+    Returns:
+        Selected diverse examples
+    """
+    if not candidates:
+        return []
+
+    selected: list[tuple[str, str, str]] = []
+    target_lower = target_word.lower()
+
+    for cand in candidates:
+        source, target, matched = cand
+
+        # Tokenize source sentence to get words (simple split, lowercase)
+        words = set(w.lower() for w in source.split() if w.lower() != target_lower)
+
+        # Check if this sentence shares any words with already selected sentences
+        overlaps = False
+        for sel_source, _, _ in selected:
+            sel_words = set(w.lower() for w in sel_source.split() if w.lower() != target_lower)
+            if words & sel_words:  # Intersection not empty
+                overlaps = True
+                break
+
+        if not overlaps:
+            selected.append(cand)
+            if len(selected) >= max_examples:
+                break
+
+    return selected
+
+
 def collect_examples_for_words(
     words: list[str],
     source_lang: str,
     target_lang: str,
     max_examples: int = 2,
     min_word_groups: int = 4,
-    extra_candidates: int = 3,
 ) -> tuple[dict[str, list[tuple[str, str, str]]], dict[str, list[tuple[str, str, str]]]]:
     """
-    Collect the absolute shortest example sentences for each word.
+    Collect the shortest example sentences for each word.
 
-    Scans the ENTIRE Tatoeba corpus to find all valid sentences,
-    then picks the shortest ones for each word. Also returns backup
-    candidates for retrying if sentences fail translation.
+    Uses a cached corpus index when available. If not cached, scans the
+    ENTIRE Tatoeba corpus and caches results for future runs.
 
     Filtering:
     - Only sentences with min_word_groups+ word groups (after merging particles)
@@ -63,98 +243,50 @@ def collect_examples_for_words(
         target_lang: Target language code
         max_examples: Maximum examples per word
         min_word_groups: Minimum word groups after merging particles (default: 4)
-        extra_candidates: Extra backup sentences to keep per word (default: 5)
 
     Returns:
         Tuple of:
-        - Dict mapping word to list of (source, target, matched_word) tuples (selected)
-        - Dict mapping word to list of backup candidates (not selected, for retries)
+        - Dict mapping word to list of (source, target, matched_word) tuples
+        - Empty dict (kept for API compatibility)
     """
     if max_examples <= 0 or not words:
         return {word: [] for word in words}, {word: [] for word in words}
 
     try:
-        from tatoebatools import ParallelCorpus
+        # Try to load from cache first
+        corpus_index = _load_corpus_cache(source_lang, target_lang, min_word_groups)
 
-        # Convert language codes
-        src = TATOEBA_CODES.get(source_lang, source_lang)
-        tgt = TATOEBA_CODES.get(target_lang, target_lang)
+        if corpus_index is None:
+            # Cache miss - scan corpus and save
+            corpus_index = _scan_corpus_for_all_words(source_lang, target_lang, min_word_groups)
+            _save_corpus_cache(source_lang, target_lang, min_word_groups, corpus_index)
 
-        # Compile patterns for all words
-        patterns = {word: compile_word_pattern(word) for word in words}
-        words_set = set(words)
-
-        # Collect ALL valid sentences per word
-        # Structure: word -> list of (source, target, length)
-        candidates: dict[str, list[tuple[str, str, int]]] = defaultdict(list)
-
-        console.print(f"[blue]Collecting examples from Tatoeba ({src}-{tgt})...[/blue]")
-
-        corpus = ParallelCorpus(src, tgt)
-
-        with create_progress() as progress:
-            task = progress.add_task("Scanning entire corpus...", total=None)
-            count = 0
-            valid_count = 0
-
-            for sentence, translation in corpus:
-                text = sentence.text
-                translated = translation.text if translation else ""
-
-                # Check if sentence has enough word groups after merging particles
-                tokenized = _tokenize_sentence(text)
-                word_group_count = _merge_particles_count(tokenized)
-
-                if word_group_count < min_word_groups:
-                    continue
-
-                valid_count += 1
-
-                # Check which words this sentence contains
-                for word in words_set:
-                    if patterns[word].search(text):
-                        candidates[word].append((text, translated, len(text)))
-
-                count += 1
-                if count % 50000 == 0:
-                    found = sum(1 for w in words if candidates[w])
-                    progress.update(
-                        task,
-                        description=f"Scanning corpus... ({found}/{len(words)} words, {valid_count} valid sentences)",
-                    )
-
-        # For each word, sort by length and take the shortest
+        # Look up each word in the index
         results: dict[str, list[tuple[str, str, str]]] = {}
         backups: dict[str, list[tuple[str, str, str]]] = {}
 
         for word in words:
-            word_candidates = candidates.get(word, [])
+            word_lower = word.lower()
+            word_sentences = corpus_index.get(word_lower, [])
 
-            if not word_candidates:
+            if not word_sentences:
                 results[word] = []
                 backups[word] = []
                 continue
 
-            # Sort by length (shortest first)
-            word_candidates.sort(key=lambda x: x[2])
-
-            # Deduplicate and take top N + extras for backups
+            # Deduplicate and take top N examples
             seen: set[str] = set()
-            selected: list[tuple[str, str, str]] = []
-            backup_list: list[tuple[str, str, str]] = []
+            candidates: list[tuple[str, str, str]] = []
 
-            for text, trans, length in word_candidates:
+            for text, trans in word_sentences:
                 if text not in seen:
                     seen.add(text)
-                    if len(selected) < max_examples:
-                        selected.append((text, trans, word))
-                    elif len(backup_list) < extra_candidates:
-                        backup_list.append((text, trans, word))
-                    else:
-                        break  # Have enough
+                    candidates.append((text, trans, word))
+
+            # Select diverse examples
+            selected = _select_diverse_examples(candidates, word, max_examples)
 
             results[word] = selected
-            backups[word] = backup_list
 
         # Summary
         found = sum(1 for ex in results.values() if ex)
@@ -164,7 +296,7 @@ def collect_examples_for_words(
 
     except Exception as e:
         console.print(f"[red]Tatoeba error: {e}[/red]")
-        return {word: [] for word in words}, {word: [] for word in words}
+        return {word: [] for word in words}, {}
 
 
 def collect_all_example_sentences(

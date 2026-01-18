@@ -6,10 +6,20 @@ import click
 from dotenv import load_dotenv
 
 from freqanki import __version__
-from freqanki.config import FreqAnkiConfig
+from freqanki.config import FreqAnkiConfig, BackendType
 from freqanki.languages import list_supported_languages
 from freqanki.pipeline import generate_deck
 from freqanki.utils.console import console, print_header, print_languages_table
+
+
+# Backend choice help text with tradeoffs
+BACKEND_HELP = """Translation backend to use:
+
+  AUTO   - Auto-select best available (default)
+  DEEPL  - Best quality, requires DEEPL_API_KEY env var (free: 500k chars/month)
+  QWEN   - Local LLM via Ollama, good for function words (free, requires Ollama running)
+  ARGOS  - Offline neural MT, fastest (free, may need language pack install)
+"""
 
 
 @click.group()
@@ -21,34 +31,39 @@ def main() -> None:
 
 @main.command()
 @click.option(
-    "--lang", "-l",
+    "--lang",
+    "-l",
     required=True,
     help="Source language code (e.g., ru, zh, ja)",
 )
 @click.option(
-    "--targets", "-t",
+    "--targets",
+    "-t",
     default="en",
     help="Target language codes, comma-separated (default: en)",
 )
 @click.option(
-    "--words", "-w",
+    "--words",
+    "-w",
     default=2000,
     type=int,
     help="Number of words to include (default: 2000)",
 )
 @click.option(
-    "--examples", "-e",
+    "--examples",
+    "-e",
     default=2,
     type=int,
     help="Example sentences per word (default: 2)",
 )
 @click.option(
-    "--literal",
+    "--no-literal",
     is_flag=True,
-    help="Include literal word-by-word translations",
+    help="Disable word-by-word literal translations (enabled by default)",
 )
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Path(path_type=Path),
     help="Output .apkg file path",
 )
@@ -58,32 +73,45 @@ def main() -> None:
     help="Skip HTML preview",
 )
 @click.option(
-    "--migrate", "-m",
+    "--migrate",
+    "-m",
     type=click.Path(exists=True, path_type=Path),
     help="Migrate from old deck (preserves Anki scheduling data)",
+)
+@click.option(
+    "--backend",
+    "-b",
+    type=click.Choice(["auto", "deepl", "qwen", "argos"], case_sensitive=False),
+    default="auto",
+    help=BACKEND_HELP,
 )
 def generate(
     lang: str,
     targets: str,
     words: int,
     examples: int,
-    literal: bool,
+    no_literal: bool,
     output: Path | None,
     no_preview: bool,
     migrate: Path | None,
+    backend: str,
 ) -> None:
     """Generate an Anki flashcard deck."""
     target_list = [t.strip() for t in targets.split(",") if t.strip()]
+
+    # Convert backend string to enum
+    backend_type = BackendType(backend.lower())
 
     config = FreqAnkiConfig.from_cli_args(
         lang=lang,
         targets=target_list,
         words=words,
         examples=examples,
-        literal=literal,
+        literal=not no_literal,
         output=output,
         preview=not no_preview,
         migrate_from=migrate,
+        backend=backend_type,
     )
 
     try:
@@ -104,6 +132,14 @@ def languages() -> None:
     langs = list_supported_languages()
     print_languages_table(langs)
     console.print(f"\n[green]Total: {len(langs)} languages[/green]")
+
+
+@main.command()
+def backends() -> None:
+    """Show translation backend status."""
+    from freqanki.core.backends import print_backend_status
+
+    print_backend_status()
 
 
 @main.command("download-dict")

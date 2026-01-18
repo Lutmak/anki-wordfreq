@@ -1,0 +1,1916 @@
+{
+  "test_date": "2026-01-17 02:20:51",
+  "source_lang": "ru",
+  "target_lang": "en",
+  "word_count": 100,
+  "words": [
+    "в",
+    "и",
+    "на",
+    "не",
+    "с",
+    "что",
+    "я",
+    "по",
+    "а",
+    "как",
+    "из",
+    "это",
+    "за",
+    "для",
+    "о",
+    "к",
+    "но",
+    "то",
+    "у",
+    "его",
+    "он",
+    "от",
+    "все",
+    "так",
+    "же",
+    "мы",
+    "до",
+    "ты",
+    "только",
+    "был",
+    "если",
+    "когда",
+    "было",
+    "мне",
+    "1",
+    "меня",
+    "уже",
+    "еще",
+    "бы",
+    "или",
+    "их",
+    "они",
+    "при",
+    "будет",
+    "2",
+    "время",
+    "кто",
+    "года",
+    "чтобы",
+    "есть",
+    "она",
+    "во",
+    "вы",
+    "может",
+    "после",
+    "нет",
+    "очень",
+    "были",
+    "со",
+    "была",
+    "также",
+    "3",
+    "вот",
+    "ее",
+    "чем",
+    "быть",
+    "где",
+    "под",
+    "этом",
+    "вас",
+    "россии",
+    "да",
+    "даже",
+    "можно",
+    "того",
+    "просто",
+    "этого",
+    "больше",
+    "сейчас",
+    "том",
+    "более",
+    "г",
+    "ну",
+    "5",
+    "без",
+    "году",
+    "лет",
+    "нас",
+    "ни",
+    "об",
+    "там",
+    "человек",
+    "которые",
+    "себя",
+    "этот",
+    "который",
+    "ли",
+    "м",
+    "раз",
+    "4"
+  ],
+  "results": {
+    "DeepL": [
+      {
+        "word": "в",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "и",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "на",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "не",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "с",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "что",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "я",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "по",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "а",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "как",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "из",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "это",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "за",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "для",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "о",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "к",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "но",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "то",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "у",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "его",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "он",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "от",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "все",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "так",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "же",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "мы",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "до",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "ты",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "только",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "был",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "если",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "когда",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "было",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "мне",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "1",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "меня",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "уже",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "еще",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "бы",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "или",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "их",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "они",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "при",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "будет",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "2",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "время",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "кто",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "года",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "чтобы",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "есть",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "она",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "во",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "вы",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "может",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "после",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "нет",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "очень",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "были",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "со",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "была",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "также",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "3",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "вот",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "ее",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "чем",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "быть",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "где",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "под",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "этом",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "вас",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "россии",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "да",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "даже",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "можно",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "того",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "просто",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "этого",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "больше",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "сейчас",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "том",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "более",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "г",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "ну",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "5",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "без",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "году",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "лет",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "нас",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "ни",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "об",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "там",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "человек",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "которые",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "себя",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "этот",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "который",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "ли",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "м",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "раз",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      },
+      {
+        "word": "4",
+        "translation": "",
+        "time_ms": 0,
+        "success": false
+      }
+    ],
+    "Qwen3 (Ollama)": [
+      {
+        "word": "в",
+        "translation": "in",
+        "time_ms": 589.1880233000848,
+        "success": true
+      },
+      {
+        "word": "и",
+        "translation": "and",
+        "time_ms": 589.1880233000848,
+        "success": true
+      },
+      {
+        "word": "на",
+        "translation": "on",
+        "time_ms": 589.1880233000848,
+        "success": true
+      },
+      {
+        "word": "не",
+        "translation": "not",
+        "time_ms": 589.1880233000848,
+        "success": true
+      },
+      {
+        "word": "с",
+        "translation": "with",
+        "time_ms": 589.1880233000848,
+        "success": true
+      },
+      {
+        "word": "что",
+        "translation": "that",
+        "time_ms": 589.1880233000848,
+        "success": true
+      },
+      {
+        "word": "я",
+        "translation": "I",
+        "time_ms": 589.1880233000848,
+        "success": true
+      },
+      {
+        "word": "по",
+        "translation": "by",
+        "time_ms": 589.1880233000848,
+        "success": true
+      },
+      {
+        "word": "а",
+        "translation": "but",
+        "time_ms": 589.1880233000848,
+        "success": true
+      },
+      {
+        "word": "как",
+        "translation": "as",
+        "time_ms": 589.1880233000848,
+        "success": true
+      },
+      {
+        "word": "из",
+        "translation": "from",
+        "time_ms": 925.7667048997973,
+        "success": true
+      },
+      {
+        "word": "это",
+        "translation": "this",
+        "time_ms": 925.7667048997973,
+        "success": true
+      },
+      {
+        "word": "за",
+        "translation": "for",
+        "time_ms": 925.7667048997973,
+        "success": true
+      },
+      {
+        "word": "для",
+        "translation": "for",
+        "time_ms": 925.7667048997973,
+        "success": true
+      },
+      {
+        "word": "о",
+        "translation": "about",
+        "time_ms": 925.7667048997973,
+        "success": true
+      },
+      {
+        "word": "к",
+        "translation": "to",
+        "time_ms": 925.7667048997973,
+        "success": true
+      },
+      {
+        "word": "но",
+        "translation": "but",
+        "time_ms": 925.7667048997973,
+        "success": true
+      },
+      {
+        "word": "то",
+        "translation": "that",
+        "time_ms": 925.7667048997973,
+        "success": true
+      },
+      {
+        "word": "у",
+        "translation": "at",
+        "time_ms": 925.7667048997973,
+        "success": true
+      },
+      {
+        "word": "его",
+        "translation": "his",
+        "time_ms": 925.7667048997973,
+        "success": true
+      },
+      {
+        "word": "он",
+        "translation": "he",
+        "time_ms": 645.9350098000868,
+        "success": true
+      },
+      {
+        "word": "от",
+        "translation": "from",
+        "time_ms": 645.9350098000868,
+        "success": true
+      },
+      {
+        "word": "все",
+        "translation": "all",
+        "time_ms": 645.9350098000868,
+        "success": true
+      },
+      {
+        "word": "так",
+        "translation": "so",
+        "time_ms": 645.9350098000868,
+        "success": true
+      },
+      {
+        "word": "же",
+        "translation": "same",
+        "time_ms": 645.9350098000868,
+        "success": true
+      },
+      {
+        "word": "мы",
+        "translation": "we",
+        "time_ms": 645.9350098000868,
+        "success": true
+      },
+      {
+        "word": "до",
+        "translation": "until",
+        "time_ms": 645.9350098000868,
+        "success": true
+      },
+      {
+        "word": "ты",
+        "translation": "you",
+        "time_ms": 645.9350098000868,
+        "success": true
+      },
+      {
+        "word": "только",
+        "translation": "only",
+        "time_ms": 645.9350098000868,
+        "success": true
+      },
+      {
+        "word": "был",
+        "translation": "was",
+        "time_ms": 645.9350098000868,
+        "success": true
+      },
+      {
+        "word": "если",
+        "translation": "if",
+        "time_ms": 817.3030395999376,
+        "success": true
+      },
+      {
+        "word": "когда",
+        "translation": "when",
+        "time_ms": 817.3030395999376,
+        "success": true
+      },
+      {
+        "word": "было",
+        "translation": "was",
+        "time_ms": 817.3030395999376,
+        "success": true
+      },
+      {
+        "word": "мне",
+        "translation": "me",
+        "time_ms": 817.3030395999376,
+        "success": true
+      },
+      {
+        "word": "1",
+        "translation": "one",
+        "time_ms": 817.3030395999376,
+        "success": true
+      },
+      {
+        "word": "меня",
+        "translation": "me",
+        "time_ms": 817.3030395999376,
+        "success": true
+      },
+      {
+        "word": "уже",
+        "translation": "already",
+        "time_ms": 817.3030395999376,
+        "success": true
+      },
+      {
+        "word": "еще",
+        "translation": "yet",
+        "time_ms": 817.3030395999376,
+        "success": true
+      },
+      {
+        "word": "бы",
+        "translation": "would",
+        "time_ms": 817.3030395999376,
+        "success": true
+      },
+      {
+        "word": "или",
+        "translation": "or",
+        "time_ms": 817.3030395999376,
+        "success": true
+      },
+      {
+        "word": "их",
+        "translation": "their",
+        "time_ms": 1385.0891346002754,
+        "success": true
+      },
+      {
+        "word": "они",
+        "translation": "they",
+        "time_ms": 1385.0891346002754,
+        "success": true
+      },
+      {
+        "word": "при",
+        "translation": "at",
+        "time_ms": 1385.0891346002754,
+        "success": true
+      },
+      {
+        "word": "будет",
+        "translation": "will",
+        "time_ms": 1385.0891346002754,
+        "success": true
+      },
+      {
+        "word": "2",
+        "translation": "two",
+        "time_ms": 1385.0891346002754,
+        "success": true
+      },
+      {
+        "word": "время",
+        "translation": "time",
+        "time_ms": 1385.0891346002754,
+        "success": true
+      },
+      {
+        "word": "кто",
+        "translation": "who",
+        "time_ms": 1385.0891346002754,
+        "success": true
+      },
+      {
+        "word": "года",
+        "translation": "year",
+        "time_ms": 1385.0891346002754,
+        "success": true
+      },
+      {
+        "word": "чтобы",
+        "translation": "so that",
+        "time_ms": 1385.0891346002754,
+        "success": true
+      },
+      {
+        "word": "есть",
+        "translation": "to have",
+        "time_ms": 1385.0891346002754,
+        "success": true
+      },
+      {
+        "word": "она",
+        "translation": "she",
+        "time_ms": 862.2753158000705,
+        "success": true
+      },
+      {
+        "word": "во",
+        "translation": "in",
+        "time_ms": 862.2753158000705,
+        "success": true
+      },
+      {
+        "word": "вы",
+        "translation": "you",
+        "time_ms": 862.2753158000705,
+        "success": true
+      },
+      {
+        "word": "может",
+        "translation": "can",
+        "time_ms": 862.2753158000705,
+        "success": true
+      },
+      {
+        "word": "после",
+        "translation": "after",
+        "time_ms": 862.2753158000705,
+        "success": true
+      },
+      {
+        "word": "нет",
+        "translation": "no",
+        "time_ms": 862.2753158000705,
+        "success": true
+      },
+      {
+        "word": "очень",
+        "translation": "very",
+        "time_ms": 862.2753158000705,
+        "success": true
+      },
+      {
+        "word": "были",
+        "translation": "were",
+        "time_ms": 862.2753158000705,
+        "success": true
+      },
+      {
+        "word": "со",
+        "translation": "with",
+        "time_ms": 862.2753158000705,
+        "success": true
+      },
+      {
+        "word": "была",
+        "translation": "was",
+        "time_ms": 862.2753158000705,
+        "success": true
+      },
+      {
+        "word": "также",
+        "translation": "also",
+        "time_ms": 1293.4019907999755,
+        "success": true
+      },
+      {
+        "word": "3",
+        "translation": "three",
+        "time_ms": 1293.4019907999755,
+        "success": true
+      },
+      {
+        "word": "вот",
+        "translation": "here",
+        "time_ms": 1293.4019907999755,
+        "success": true
+      },
+      {
+        "word": "ее",
+        "translation": "her",
+        "time_ms": 1293.4019907999755,
+        "success": true
+      },
+      {
+        "word": "чем",
+        "translation": "than",
+        "time_ms": 1293.4019907999755,
+        "success": true
+      },
+      {
+        "word": "быть",
+        "translation": "to be",
+        "time_ms": 1293.4019907999755,
+        "success": true
+      },
+      {
+        "word": "где",
+        "translation": "where",
+        "time_ms": 1293.4019907999755,
+        "success": true
+      },
+      {
+        "word": "под",
+        "translation": "under",
+        "time_ms": 1293.4019907999755,
+        "success": true
+      },
+      {
+        "word": "этом",
+        "translation": "this",
+        "time_ms": 1293.4019907999755,
+        "success": true
+      },
+      {
+        "word": "вас",
+        "translation": "you",
+        "time_ms": 1293.4019907999755,
+        "success": true
+      },
+      {
+        "word": "россии",
+        "translation": "of",
+        "time_ms": 837.9410574998474,
+        "success": true
+      },
+      {
+        "word": "да",
+        "translation": "yes",
+        "time_ms": 837.9410574998474,
+        "success": true
+      },
+      {
+        "word": "даже",
+        "translation": "even",
+        "time_ms": 837.9410574998474,
+        "success": true
+      },
+      {
+        "word": "можно",
+        "translation": "can",
+        "time_ms": 837.9410574998474,
+        "success": true
+      },
+      {
+        "word": "того",
+        "translation": "of",
+        "time_ms": 837.9410574998474,
+        "success": true
+      },
+      {
+        "word": "просто",
+        "translation": "just",
+        "time_ms": 837.9410574998474,
+        "success": true
+      },
+      {
+        "word": "этого",
+        "translation": "this",
+        "time_ms": 837.9410574998474,
+        "success": true
+      },
+      {
+        "word": "больше",
+        "translation": "more",
+        "time_ms": 837.9410574998474,
+        "success": true
+      },
+      {
+        "word": "сейчас",
+        "translation": "now",
+        "time_ms": 837.9410574998474,
+        "success": true
+      },
+      {
+        "word": "том",
+        "translation": "that",
+        "time_ms": 837.9410574998474,
+        "success": true
+      },
+      {
+        "word": "более",
+        "translation": "more",
+        "time_ms": 1324.5796109000366,
+        "success": true
+      },
+      {
+        "word": "г",
+        "translation": "g",
+        "time_ms": 1324.5796109000366,
+        "success": true
+      },
+      {
+        "word": "ну",
+        "translation": "well",
+        "time_ms": 1324.5796109000366,
+        "success": true
+      },
+      {
+        "word": "5",
+        "translation": "five",
+        "time_ms": 1324.5796109000366,
+        "success": true
+      },
+      {
+        "word": "без",
+        "translation": "without",
+        "time_ms": 1324.5796109000366,
+        "success": true
+      },
+      {
+        "word": "году",
+        "translation": "in year",
+        "time_ms": 1324.5796109000366,
+        "success": true
+      },
+      {
+        "word": "лет",
+        "translation": "years",
+        "time_ms": 1324.5796109000366,
+        "success": true
+      },
+      {
+        "word": "нас",
+        "translation": "us",
+        "time_ms": 1324.5796109000366,
+        "success": true
+      },
+      {
+        "word": "ни",
+        "translation": "neither",
+        "time_ms": 1324.5796109000366,
+        "success": true
+      },
+      {
+        "word": "об",
+        "translation": "about",
+        "time_ms": 1324.5796109000366,
+        "success": true
+      },
+      {
+        "word": "там",
+        "translation": "there",
+        "time_ms": 1712.5698429001204,
+        "success": true
+      },
+      {
+        "word": "человек",
+        "translation": "person",
+        "time_ms": 1712.5698429001204,
+        "success": true
+      },
+      {
+        "word": "которые",
+        "translation": "who",
+        "time_ms": 1712.5698429001204,
+        "success": true
+      },
+      {
+        "word": "себя",
+        "translation": "self",
+        "time_ms": 1712.5698429001204,
+        "success": true
+      },
+      {
+        "word": "этот",
+        "translation": "this",
+        "time_ms": 1712.5698429001204,
+        "success": true
+      },
+      {
+        "word": "который",
+        "translation": "who",
+        "time_ms": 1712.5698429001204,
+        "success": true
+      },
+      {
+        "word": "ли",
+        "translation": "or",
+        "time_ms": 1712.5698429001204,
+        "success": true
+      },
+      {
+        "word": "м",
+        "translation": "male",
+        "time_ms": 1712.5698429001204,
+        "success": true
+      },
+      {
+        "word": "раз",
+        "translation": "time",
+        "time_ms": 1712.5698429001204,
+        "success": true
+      },
+      {
+        "word": "4",
+        "translation": "four",
+        "time_ms": 1712.5698429001204,
+        "success": true
+      }
+    ],
+    "Argos": [
+      {
+        "word": "в",
+        "translation": "into",
+        "time_ms": 233.65750099765137,
+        "success": true
+      },
+      {
+        "word": "и",
+        "translation": "and",
+        "time_ms": 30.026800002815435,
+        "success": true
+      },
+      {
+        "word": "на",
+        "translation": "on",
+        "time_ms": 36.03925499919569,
+        "success": true
+      },
+      {
+        "word": "не",
+        "translation": "not",
+        "time_ms": 24.637713002448436,
+        "success": true
+      },
+      {
+        "word": "с",
+        "translation": "on",
+        "time_ms": 33.53584100113949,
+        "success": true
+      },
+      {
+        "word": "что",
+        "translation": "what",
+        "time_ms": 35.89653000017279,
+        "success": true
+      },
+      {
+        "word": "я",
+        "translation": "i",
+        "time_ms": 34.513517002778826,
+        "success": true
+      },
+      {
+        "word": "по",
+        "translation": "along",
+        "time_ms": 38.335895998898195,
+        "success": true
+      },
+      {
+        "word": "а",
+        "translation": "and",
+        "time_ms": 34.89239199916483,
+        "success": true
+      },
+      {
+        "word": "как",
+        "translation": "how",
+        "time_ms": 33.74009300023317,
+        "success": true
+      },
+      {
+        "word": "из",
+        "translation": "from",
+        "time_ms": 34.73195800324902,
+        "success": true
+      },
+      {
+        "word": "это",
+        "translation": "it",
+        "time_ms": 37.219327001366764,
+        "success": true
+      },
+      {
+        "word": "за",
+        "translation": "behind",
+        "time_ms": 40.819604000716936,
+        "success": true
+      },
+      {
+        "word": "для",
+        "translation": "for",
+        "time_ms": 39.15511399827665,
+        "success": true
+      },
+      {
+        "word": "о",
+        "translation": "on",
+        "time_ms": 36.86610200020368,
+        "success": true
+      },
+      {
+        "word": "к",
+        "translation": "toward",
+        "time_ms": 37.31029000118724,
+        "success": true
+      },
+      {
+        "word": "но",
+        "translation": "but",
+        "time_ms": 39.74581999864313,
+        "success": true
+      },
+      {
+        "word": "то",
+        "translation": "piece",
+        "time_ms": 40.52806700201472,
+        "success": true
+      },
+      {
+        "word": "у",
+        "translation": "at",
+        "time_ms": 46.803771998384036,
+        "success": true
+      },
+      {
+        "word": "его",
+        "translation": "his",
+        "time_ms": 35.05237900026259,
+        "success": true
+      },
+      {
+        "word": "он",
+        "translation": "he",
+        "time_ms": 34.19722000035108,
+        "success": true
+      },
+      {
+        "word": "от",
+        "translation": "from",
+        "time_ms": 34.190084003057564,
+        "success": true
+      },
+      {
+        "word": "все",
+        "translation": "everything",
+        "time_ms": 46.97985900202184,
+        "success": true
+      },
+      {
+        "word": "так",
+        "translation": "so",
+        "time_ms": 40.38972499984084,
+        "success": true
+      },
+      {
+        "word": "же",
+        "translation": "equally",
+        "time_ms": 41.5246729971841,
+        "success": true
+      },
+      {
+        "word": "мы",
+        "translation": "wet",
+        "time_ms": 38.22133100038627,
+        "success": true
+      },
+      {
+        "word": "до",
+        "translation": "before",
+        "time_ms": 40.13719700014917,
+        "success": true
+      },
+      {
+        "word": "ты",
+        "translation": "you",
+        "time_ms": 38.698628999554785,
+        "success": true
+      },
+      {
+        "word": "только",
+        "translation": "only",
+        "time_ms": 42.98572600237094,
+        "success": true
+      },
+      {
+        "word": "был",
+        "translation": "was",
+        "time_ms": 42.808952002815204,
+        "success": true
+      },
+      {
+        "word": "если",
+        "translation": "if",
+        "time_ms": 48.19299900191254,
+        "success": true
+      },
+      {
+        "word": "когда",
+        "translation": "when",
+        "time_ms": 44.22278900165111,
+        "success": true
+      },
+      {
+        "word": "было",
+        "translation": "was",
+        "time_ms": 40.08012699705432,
+        "success": true
+      },
+      {
+        "word": "мне",
+        "translation": "me",
+        "time_ms": 36.10552299869596,
+        "success": true
+      },
+      {
+        "word": "1",
+        "translation": "1st",
+        "time_ms": 35.93791700041038,
+        "success": true
+      },
+      {
+        "word": "меня",
+        "translation": "me",
+        "time_ms": 40.12566900200909,
+        "success": true
+      },
+      {
+        "word": "уже",
+        "translation": "already",
+        "time_ms": 37.36914399996749,
+        "success": true
+      },
+      {
+        "word": "еще",
+        "translation": "still",
+        "time_ms": 35.35027900215937,
+        "success": true
+      },
+      {
+        "word": "бы",
+        "translation": "would",
+        "time_ms": 36.26128800169681,
+        "success": true
+      },
+      {
+        "word": "или",
+        "translation": "or",
+        "time_ms": 36.88064699963434,
+        "success": true
+      },
+      {
+        "word": "их",
+        "translation": "their",
+        "time_ms": 39.15867399700801,
+        "success": true
+      },
+      {
+        "word": "они",
+        "translation": "they",
+        "time_ms": 39.099900001019705,
+        "success": true
+      },
+      {
+        "word": "при",
+        "translation": "upon",
+        "time_ms": 43.42475100202137,
+        "success": true
+      },
+      {
+        "word": "будет",
+        "translation": "will",
+        "time_ms": 37.652173999958904,
+        "success": true
+      },
+      {
+        "word": "2",
+        "translation": "2.",
+        "time_ms": 45.73954599982244,
+        "success": true
+      },
+      {
+        "word": "время",
+        "translation": "time",
+        "time_ms": 40.245015999971656,
+        "success": true
+      },
+      {
+        "word": "кто",
+        "translation": "who",
+        "time_ms": 43.99523600295652,
+        "success": true
+      },
+      {
+        "word": "года",
+        "translation": "year",
+        "time_ms": 48.226314000203274,
+        "success": true
+      },
+      {
+        "word": "чтобы",
+        "translation": "if",
+        "time_ms": 45.65858600108186,
+        "success": true
+      },
+      {
+        "word": "есть",
+        "translation": "eat",
+        "time_ms": 42.71348999827751,
+        "success": true
+      },
+      {
+        "word": "она",
+        "translation": "she",
+        "time_ms": 46.94684199785115,
+        "success": true
+      },
+      {
+        "word": "во",
+        "translation": "into",
+        "time_ms": 42.1775559989328,
+        "success": true
+      },
+      {
+        "word": "вы",
+        "translation": "you",
+        "time_ms": 44.91217200120445,
+        "success": true
+      },
+      {
+        "word": "может",
+        "translation": "maybe",
+        "time_ms": 37.58316099992953,
+        "success": true
+      },
+      {
+        "word": "после",
+        "translation": "later",
+        "time_ms": 46.59073599759722,
+        "success": true
+      },
+      {
+        "word": "нет",
+        "translation": "no",
+        "time_ms": 47.742849001224386,
+        "success": true
+      },
+      {
+        "word": "очень",
+        "translation": "very",
+        "time_ms": 40.7781950016215,
+        "success": true
+      },
+      {
+        "word": "были",
+        "translation": "were",
+        "time_ms": 45.92043199954787,
+        "success": true
+      },
+      {
+        "word": "со",
+        "translation": "with",
+        "time_ms": 47.88212600033148,
+        "success": true
+      },
+      {
+        "word": "была",
+        "translation": "was",
+        "time_ms": 43.659325998305576,
+        "success": true
+      },
+      {
+        "word": "также",
+        "translation": "also",
+        "time_ms": 27.6758219988551,
+        "success": true
+      },
+      {
+        "word": "3",
+        "translation": "3.",
+        "time_ms": 35.56905900040874,
+        "success": true
+      },
+      {
+        "word": "вот",
+        "translation": "here",
+        "time_ms": 39.55825600132812,
+        "success": true
+      },
+      {
+        "word": "ее",
+        "translation": "her",
+        "time_ms": 36.35686699999496,
+        "success": true
+      },
+      {
+        "word": "чем",
+        "translation": "more",
+        "time_ms": 38.68214499743772,
+        "success": true
+      },
+      {
+        "word": "быть",
+        "translation": "exist",
+        "time_ms": 43.29851299917209,
+        "success": true
+      },
+      {
+        "word": "где",
+        "translation": "where",
+        "time_ms": 48.29859900200972,
+        "success": true
+      },
+      {
+        "word": "под",
+        "translation": "below",
+        "time_ms": 45.41175499980454,
+        "success": true
+      },
+      {
+        "word": "этом",
+        "translation": "this",
+        "time_ms": 40.7766009993793,
+        "success": true
+      },
+      {
+        "word": "вас",
+        "translation": "you",
+        "time_ms": 71.53417600056855,
+        "success": true
+      },
+      {
+        "word": "россии",
+        "translation": "Russia",
+        "time_ms": 85.71062400005758,
+        "success": true
+      },
+      {
+        "word": "да",
+        "translation": "yes",
+        "time_ms": 40.49354500239133,
+        "success": true
+      },
+      {
+        "word": "даже",
+        "translation": "even",
+        "time_ms": 39.080276001186576,
+        "success": true
+      },
+      {
+        "word": "можно",
+        "translation": "possible",
+        "time_ms": 62.81072899946594,
+        "success": true
+      },
+      {
+        "word": "того",
+        "translation": "then",
+        "time_ms": 39.65154999968945,
+        "success": true
+      },
+      {
+        "word": "просто",
+        "translation": "simple",
+        "time_ms": 40.08265100128483,
+        "success": true
+      },
+      {
+        "word": "этого",
+        "translation": "this",
+        "time_ms": 38.01068400207441,
+        "success": true
+      },
+      {
+        "word": "больше",
+        "translation": "more",
+        "time_ms": 35.666257001139456,
+        "success": true
+      },
+      {
+        "word": "сейчас",
+        "translation": "now",
+        "time_ms": 58.03238599764882,
+        "success": true
+      },
+      {
+        "word": "том",
+        "translation": "volume",
+        "time_ms": 39.38063999885344,
+        "success": true
+      },
+      {
+        "word": "более",
+        "translation": "more",
+        "time_ms": 40.13734800173552,
+        "success": true
+      },
+      {
+        "word": "г",
+        "translation": "g.",
+        "time_ms": 72.67273299657973,
+        "success": true
+      },
+      {
+        "word": "ну",
+        "translation": "well",
+        "time_ms": 39.35989299861831,
+        "success": true
+      },
+      {
+        "word": "5",
+        "translation": "5.",
+        "time_ms": 42.5970430005691,
+        "success": true
+      },
+      {
+        "word": "без",
+        "translation": "without",
+        "time_ms": 48.26536400287296,
+        "success": true
+      },
+      {
+        "word": "году",
+        "translation": "year",
+        "time_ms": 50.71997199775069,
+        "success": true
+      },
+      {
+        "word": "лет",
+        "translation": "years",
+        "time_ms": 39.395668001816375,
+        "success": true
+      },
+      {
+        "word": "нас",
+        "translation": "us",
+        "time_ms": 39.847251999162836,
+        "success": true
+      },
+      {
+        "word": "ни",
+        "translation": "neither",
+        "time_ms": 48.502101002668496,
+        "success": true
+      },
+      {
+        "word": "об",
+        "translation": "on",
+        "time_ms": 53.778837998834206,
+        "success": true
+      },
+      {
+        "word": "там",
+        "translation": "there",
+        "time_ms": 38.800009999249596,
+        "success": true
+      },
+      {
+        "word": "человек",
+        "translation": "man",
+        "time_ms": 48.25694400278735,
+        "success": true
+      },
+      {
+        "word": "которые",
+        "translation": "which",
+        "time_ms": 46.24087000047439,
+        "success": true
+      },
+      {
+        "word": "себя",
+        "translation": "herself",
+        "time_ms": 50.99465699822758,
+        "success": true
+      },
+      {
+        "word": "этот",
+        "translation": "this",
+        "time_ms": 39.39742600050522,
+        "success": true
+      },
+      {
+        "word": "который",
+        "translation": "which",
+        "time_ms": 44.897992000187514,
+        "success": true
+      },
+      {
+        "word": "ли",
+        "translation": "whether",
+        "time_ms": 39.2336510012683,
+        "success": true
+      },
+      {
+        "word": "м",
+        "translation": "n",
+        "time_ms": 96.69224900062545,
+        "success": true
+      },
+      {
+        "word": "раз",
+        "translation": "once",
+        "time_ms": 50.59706300016842,
+        "success": true
+      },
+      {
+        "word": "4",
+        "translation": "4.",
+        "time_ms": 53.2831009986694,
+        "success": true
+      }
+    ]
+  }
+}

@@ -4,13 +4,21 @@ import bz2
 import gzip
 import json
 import lzma
-import os
 import re
+import unicodedata
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
 
-from freqanki.utils.console import console, create_progress
+from freqanki.utils.console import console
+
+
+def _strip_accents(text: str) -> str:
+    """Strip combining diacritical marks (like stress marks) from text."""
+    # Normalize to decomposed form, then remove combining marks
+    normalized = unicodedata.normalize("NFD", text)
+    return "".join(c for c in normalized if unicodedata.category(c) != "Mn")
+
 
 # Kaikki download URLs by language
 KAIKKI_URLS = {
@@ -41,16 +49,26 @@ KAIKKI_URLS = {
     "zh": "https://kaikki.org/dictionary/Chinese/kaikki.org-dictionary-Chinese.jsonl",
 }
 
-# POS priority for selecting entries
+# POS priority for selecting entries (lower = higher priority)
+# Function words (particles, conjunctions, prepositions) are prioritized
+# because for common words they often have the best/simplest definitions.
+# Nouns are lower priority because single-letter words often have
+# "letter name" entries as nouns (e.g., "и" as "the letter И").
 POS_PRIORITY = {
-    "pron": 1,
-    "verb": 2,
-    "noun": 3,
-    "adj": 4,
-    "adv": 5,
-    "conj": 6,
-    "prep": 7,
-    "character": 10,
+    "pron": 1,  # pronouns: он, она, это, я
+    "verb": 2,  # verbs: быть, делать
+    "particle": 3,  # particles: не, же, ли
+    "conj": 4,  # conjunctions: и, но, что
+    "prep": 5,  # prepositions: в, на, с, к
+    "det": 6,  # determiners: это, весь
+    "adj": 7,  # adjectives
+    "adv": 8,  # adverbs
+    "intj": 9,  # interjections
+    "noun": 10,  # nouns (lower because letter names are nouns)
+    "name": 11,  # proper names
+    "prefix": 12,  # prefixes
+    "character": 99,  # always skip
+    "symbol": 99,  # always skip
 }
 
 # Words to skip in Kaikki lookups
@@ -166,6 +184,9 @@ def load_entries_for_words(
     """
     Load Kaikki entries for specific words.
 
+    Also loads base words referenced by form_of entries, so inflected forms
+    like "книги" can look up their base word "книга" for meanings.
+
     Args:
         dict_path: Path to JSONL dictionary
         words: Words to look up
@@ -185,6 +206,7 @@ def load_entries_for_words(
     grouped: dict[str, list[dict]] = defaultdict(list)
     found: set[str] = set()
 
+    # First pass: load requested words
     with open(dict_path, encoding="utf-8") as f:
         for line_num, line in enumerate(f, 1):
             if not line.strip():
@@ -195,7 +217,6 @@ def load_entries_for_words(
             except json.JSONDecodeError:
                 continue
 
-            # Check if entry matches our language and words
             entry_lang = entry.get("lang_code", "")
             entry_word = entry.get("word", "").lower()
 
@@ -203,7 +224,6 @@ def load_entries_for_words(
                 grouped[entry_word].append(entry)
                 found.add(entry_word)
 
-            # Progress indicator every 100k lines
             if line_num % 100000 == 0:
                 console.print(
                     f"  Scanned {line_num:,} entries, found {len(found)}/{len(lookup_set)}...",
@@ -211,16 +231,111 @@ def load_entries_for_words(
                 )
 
     console.print(f"  Loaded entries for {len(found)}/{len(lookup_set)} words        ")
+
+    # Collect base words from form_of references that we don't have yet
+    base_words_needed: set[str] = set()
+    for word_entries in grouped.values():
+        for entry in word_entries:
+            for sense in entry.get("senses", []) or []:
+                for form_of in sense.get("form_of", []):
+                    if isinstance(form_of, dict) and form_of.get("word"):
+                        base = _strip_accents(form_of["word"]).lower()
+                        if base not in grouped:
+                            base_words_needed.add(base)
+
+    # Second pass: load base words if any are needed
+    if base_words_needed:
+        console.print(f"  Loading {len(base_words_needed)} base words for inflected forms...")
+        with open(dict_path, encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                entry_lang = entry.get("lang_code", "")
+                entry_word = entry.get("word", "").lower()
+
+                if entry_lang == lang_code and entry_word in base_words_needed:
+                    grouped[entry_word].append(entry)
+
     return dict(grouped)
 
 
 def get_english_meanings(sense: dict) -> list[str]:
-    """Extract English meanings from a Kaikki sense."""
+    """Extract English meanings from a Kaikki sense.
+
+    Skips "form-of" definitions (like "genitive of X") as these are
+    grammatical references, not actual meanings.
+
+    Prioritizes the 'links' field which contains clean English words
+    (e.g., [['he', 'he'], ['it', 'it']]) over 'glosses' which may contain
+    grammatical descriptions.
+    """
+    # Skip form-of senses - they contain grammatical info, not meanings
+    if sense.get("form_of"):
+        return []
+
+    tags = sense.get("tags", [])
+    if "form-of" in tags:
+        return []
+
     meanings = []
 
-    # Primary glosses
+    # Primary source: links field (contains clean English words)
+    # Format: [['he', 'he'], ['it', 'it']] or [['word', 'link_target']]
+    # Filter out links to non-English (e.g., ['бы', 'бы#Russian'])
+    for link in sense.get("links", []):
+        if isinstance(link, list) and len(link) >= 2:
+            word = link[0]
+            target = link[1] if len(link) > 1 else ""
+            # Skip links that reference non-English words (contain #Russian, #French, etc.)
+            if "#" in target and not target.endswith("#English"):
+                continue
+            # Skip links to appendices (e.g., Appendix:Cyrillic script)
+            if target.startswith("Appendix:"):
+                continue
+            # Skip if the word itself contains Cyrillic (not English)
+            if word and any("\u0400" <= c <= "\u04ff" for c in word):
+                continue
+            # Skip grammatical terms that aren't translations
+            skip_terms = {
+                "singular",
+                "plural",
+                "demonstrative pronoun",
+                "demonstrative determiner",
+                "personal pronoun",
+            }
+            if word and word.lower() in skip_terms:
+                continue
+            if word and isinstance(word, str):
+                meanings.append(word)
+        elif isinstance(link, list) and len(link) == 1:
+            word = link[0]
+            # Skip Cyrillic words
+            if word and any("\u0400" <= c <= "\u04ff" for c in word):
+                continue
+            if word and isinstance(word, str):
+                meanings.append(word)
+
+    # If we got meanings from links, return those (they're cleaner)
+    if meanings:
+        return meanings
+
+    # Fallback: glosses (may have grammatical descriptions)
     for gloss in sense.get("glosses", []):
         if gloss:
+            # Skip glosses that are just grammatical form references
+            if _is_form_of_gloss(gloss):
+                continue
+            # Skip glosses about letter/script names (not useful for flashcards)
+            if _is_letter_gloss(gloss):
+                continue
+            # Skip glosses that are descriptive rather than translations
+            if _is_descriptive_gloss(gloss):
+                continue
             meanings.append(gloss)
 
     # English field
@@ -236,10 +351,106 @@ def get_english_meanings(sense: dict) -> list[str]:
     # Raw glosses as fallback
     if not meanings:
         for raw in sense.get("raw_glosses", []):
-            if raw:
+            if raw and not _is_form_of_gloss(raw):
                 meanings.append(raw)
 
     return meanings
+
+
+def _is_form_of_gloss(gloss: str) -> bool:
+    """Check if a gloss is just a grammatical form reference.
+
+    Examples that should return True:
+    - "genitive/accusative of он (on)"
+    - "plural of дом"
+    - "past tense of делать"
+    """
+    import re
+
+    # Pattern: starts with grammatical term + " of "
+    form_of_pattern = re.compile(
+        r"^(?:genitive|accusative|dative|instrumental|prepositional|locative|"
+        r"nominative|vocative|plural|singular|masculine|feminine|neuter|"
+        r"past|present|future|imperative|infinitive|participle|gerund|"
+        r"perfective|imperfective|comparative|superlative|diminutive|"
+        r"first-person|second-person|third-person|short form|"
+        r"[a-z]+/[a-z]+)"  # handles "genitive/accusative"
+        r"\s+(?:of|form of)\s+",
+        re.IGNORECASE,
+    )
+    return bool(form_of_pattern.match(gloss))
+
+
+def _is_letter_gloss(gloss: str) -> bool:
+    """Check if a gloss is about letter/script names (not useful for flashcards).
+
+    Examples that should return True:
+    - "The name of the Cyrillic script letter Я."
+    - "The thirty-third letter of the Russian alphabet"
+    - "alternative letter-case form of я (ja)."
+    - "Yi (an ethnic group of southwestern China)" - letter names as proper nouns
+    """
+    gloss_lower = gloss.lower()
+    letter_patterns = [
+        "letter of the",
+        "script letter",
+        "letter-case form",
+        "the name of the",
+        "cyrillic script",
+        "russian alphabet",
+        # Letter names that are often misidentified as nouns
+        "an ethnic group",  # "Yi" for letter И
+    ]
+    return any(p in gloss_lower for p in letter_patterns)
+
+
+def _is_descriptive_gloss(gloss: str) -> bool:
+    """Check if a gloss is a description rather than a translation.
+
+    Glosses that describe usage rather than provide a translation are not
+    useful for flashcards. We want short, clean translations like "and",
+    "but", "in" - not descriptions like "Used as an emphasiser".
+
+    Examples that should return True:
+    - "Used as an emphasiser, including in a few set phrases."
+    - "To emphasise the truth of a verb"
+    - "[with prepositional]" (grammatical marker)
+    - "same as X" (cross-reference)
+    - "As other emphasis or in set phrases" (usage description)
+    """
+    gloss_lower = gloss.lower()
+
+    # Descriptions that start with certain patterns
+    descriptive_starts = [
+        "used as",
+        "used to",
+        "used for",
+        "to emphasise",
+        "to emphasize",
+        "to express",
+        "to indicate",
+        "to introduce",
+        "same as",
+        "see also",
+        "compare ",
+        "cf. ",
+        "as other",  # "As other emphasis..."
+        "as a ",  # "As a conjunction..."
+        "demonstrative pronoun",
+        "demonstrative determiner",
+        "singular",  # grammatical label
+        "plural",  # grammatical label
+    ]
+
+    # Grammatical markers in brackets
+    if gloss.startswith("[with ") or gloss.startswith("["):
+        return True
+
+    # Contains non-ASCII (likely non-English translation like Russian)
+    if any(ord(c) > 127 for c in gloss):
+        return True
+
+    return any(gloss_lower.startswith(p) for p in descriptive_starts)
 
 
 def _entry_sort_key(entry: dict) -> tuple[int, int]:
@@ -258,6 +469,10 @@ def get_glosses_for_word(
     """
     Get English glosses for a word from Kaikki entries.
 
+    For inflected forms (like "него" which is genitive of "он"), this will
+    look up the base word's meaning if the inflected form only has
+    grammatical descriptions.
+
     Args:
         word: Word to look up
         grouped_entries: Pre-loaded entries grouped by word
@@ -270,10 +485,69 @@ def get_glosses_for_word(
     if not entries:
         return []
 
-    # Sort by POS priority
+    # Sort by POS priority (but don't filter - some high-priority entries
+    # may be form-of with no real meanings)
     sorted_entries = sorted(entries, key=_entry_sort_key)
 
-    # Use only highest priority group
+    meanings: list[str] = []
+    seen_lower: set[str] = set()
+    base_words: set[str] = set()  # Track base words for fallback
+
+    # POS types to skip entirely (not useful for language learning)
+    skip_pos = {"character", "symbol", "punctuation mark"}
+
+    for entry in sorted_entries:
+        # Skip entries that aren't useful for flashcards
+        if entry.get("pos", "") in skip_pos:
+            continue
+
+        for sense in entry.get("senses", []) or []:
+            # Collect base words from form_of references for fallback
+            # Strip accents since dictionary uses stress marks (кни́га) but
+            # our index uses plain words (книга)
+            for form_of in sense.get("form_of", []):
+                if isinstance(form_of, dict) and form_of.get("word"):
+                    base_word = _strip_accents(form_of["word"]).lower()
+                    base_words.add(base_word)
+
+            for meaning in get_english_meanings(sense):
+                clean = meaning.strip()
+                if not clean:
+                    continue
+                lower = clean.lower()
+                if lower in seen_lower:
+                    continue
+                meanings.append(clean)
+                seen_lower.add(lower)
+                if len(meanings) >= limit:
+                    return meanings
+
+    # If no meanings found but we have base words, look them up
+    if not meanings and base_words:
+        for base_word in base_words:
+            base_meanings = _get_base_word_meanings(base_word, grouped_entries, limit)
+            for meaning in base_meanings:
+                lower = meaning.lower()
+                if lower not in seen_lower:
+                    meanings.append(meaning)
+                    seen_lower.add(lower)
+                    if len(meanings) >= limit:
+                        return meanings
+
+    return meanings
+
+
+def _get_base_word_meanings(
+    word: str,
+    grouped_entries: dict[str, list[dict]],
+    limit: int = 3,
+) -> list[str]:
+    """Get meanings for a base word (non-recursive, no form-of lookup)."""
+    entries = grouped_entries.get(word.lower())
+    if not entries:
+        return []
+
+    sorted_entries = sorted(entries, key=_entry_sort_key)
     if sorted_entries:
         top_priority = _entry_sort_key(sorted_entries[0])[0]
         sorted_entries = [e for e in sorted_entries if _entry_sort_key(e)[0] == top_priority]

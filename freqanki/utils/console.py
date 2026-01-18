@@ -9,6 +9,7 @@ from rich.progress import (
     TaskProgressColumn,
     TextColumn,
     TimeElapsedColumn,
+    TimeRemainingColumn,
 )
 from rich.table import Table
 
@@ -25,6 +26,7 @@ def create_progress() -> Progress:
         TaskProgressColumn(),
         MofNCompleteColumn(),
         TimeElapsedColumn(),
+        TimeRemainingColumn(),
         console=console,
     )
 

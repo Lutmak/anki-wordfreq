@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>FreqAnki Preview</title>
+    <style>
+        /* Page layout - preview wrapper only */
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        .front-card {
+            background: #111;
+            border-radius: 16px;
+            padding: 32px;
+            margin: 18px 0;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+        }
+        .back-card {
+            background: #111;
+            border-radius: 16px;
+            padding: 32px;
+            margin: 18px 0;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+        }
+        .word { font-size: 64px; margin: 12px 0 6px; }
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 6px 14px;
+            border-radius: 999px;
+            background: #1f1f1f;
+            border: 1px solid #3a3a3a;
+            font-size: 15px;
+            color: #f9cf6c;
+        }
+        .nav {
+            margin: 30px 0;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            align-items: center;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        button:hover { background: #45a049; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        .counter { font-size: 20px; color: #888; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>FreqAnki Preview</h1>
+
+        <div class="nav">
+            <button onclick="prevCard()">Previous</button>
+            <span class="counter"><span id="current">1</span> / <span id="total">0</span></span>
+            <button onclick="nextCard()">Next</button>
+        </div>
+
+        <div class="front-card">
+            <div class="word" id="front-word"></div>
+            <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:12px;">
+                <div class="chip" id="front-rank"></div>
+            </div>
+        </div>
+
+        <div class="back-card">
+            <div id="content"></div>
+        </div>
+
+        <div class="nav">
+            <button onclick="window.close()">Close & Continue</button>
+        </div>
+    </div>
+
+    <script>
+        const cards = [{"word": "\u0432", "rank": 1, "content": "<div style='display:flex;justify-content:center;align-items:center;gap:16px;'><span style='font-size:48px;'>\u0432</span><span>\ud83d\udd0a</span></div><div style='text-align:center;color:#a0a0a0;font-size:14px;margin-top:4px;'>Romanization: v | Ipa: v</div><div style='width:100%;height:1px;background:rgba(249,207,108,0.25);margin:6px 0;'></div><div style='text-transform:uppercase;letter-spacing:1px;font-size:14px;color:#f9cf6c;text-align:center;'>Possible Meanings</div><div style='margin-top:4px;font-size:19px;line-height:1.4;color:#f7f7f7;text-align:center;'><div style='display:flex;flex-direction:column;align-items:center;gap:4px;margin:6px 0;'><span style='font-size:12px;letter-spacing:1px;color:#0f0f0f;background:#f9cf6c;border-radius:999px;padding:4px 10px;display:inline-flex;'>EN</span><span style='font-size:19px;color:#f7f7f7;text-align:center;'>in, at, on</span></div><div style='display:flex;flex-direction:column;align-items:center;gap:4px;margin:6px 0;'><span style='font-size:12px;letter-spacing:1px;color:#0f0f0f;background:#f9cf6c;border-radius:999px;padding:4px 10px;display:inline-flex;'>ES</span><span style='font-size:19px;color:#f7f7f7;text-align:center;'>en, en, sobre</span></div></div><div style='width:100%;height:1px;background:rgba(249,207,108,0.25);margin:6px 0;'></div><div style='text-transform:uppercase;letter-spacing:1px;font-size:14px;color:#f9cf6c;text-align:center;'>Grammar Notes</div><div style='margin-top:4px;text-align:center;'><div style='display:flex;flex-direction:column;gap:2px;margin-top:4px;text-align:center;'><div style='display:flex;flex-direction:column;align-items:center;padding:4px 0;'><span style='font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#a0a0a0;'>Part of Speech</span><span style='font-size:18px;font-weight:600;color:#fdfdfd;margin-top:2px;text-align:center;'>Preposition</span></div><div style='display:flex;flex-direction:column;align-items:center;padding:4px 0;'><span style='font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#a0a0a0;'>Lemma</span><span style='font-size:18px;font-weight:600;color:#fdfdfd;margin-top:2px;text-align:center;'>\u0432</span></div></div></div><div style='width:100%;height:1px;background:rgba(249,207,108,0.25);margin:6px 0;'></div><div style='text-transform:uppercase;letter-spacing:1px;font-size:14px;color:#f9cf6c;text-align:center;'>Usage Examples</div><div style='margin-top:4px;font-size:19px;line-height:1.4;color:#f7f7f7;text-align:center;'><div style='margin:12px 0;line-height:1.6;font-size:18px;text-align:center;'>\u2022 \u042f <b style='color:#ffcc00'>\u0432</b> \u044d\u0442\u043e \u043d\u0435 \u0432\u0435\u0440\u044e!<div style='color:#a3a3a3;font-size:16px;margin-top:6px;'><i>I don&#x27;t believe it!</i></div><div style='color:#8a8a8a;font-size:14px;margin-top:4px;'>[I don&#x27;t believe that!]</div></div><div style='margin:12px 0;line-height:1.6;font-size:18px;text-align:center;'>\u2022 \u042f <b style='color:#ffcc00'>\u0432</b> \u044d\u0442\u043e \u043d\u0435 \u0432\u0435\u0440\u044e.<div style='color:#a3a3a3;font-size:16px;margin-top:6px;'><i>I don&#x27;t believe that.</i></div><div style='color:#8a8a8a;font-size:14px;margin-top:4px;'>[I don&#x27;t believe that!]</div></div></div>"}, {"word": "\u0438", "rank": 2, "content": "<div style='display:flex;justify-content:center;align-items:center;gap:16px;'><span style='font-size:48px;'>\u0438</span><span>\ud83d\udd0a</span></div><div style='text-align:center;color:#a0a0a0;font-size:14px;margin-top:4px;'>Romanization: i | Ipa: i</div><div style='width:100%;height:1px;background:rgba(249,207,108,0.25);margin:6px 0;'></div><div style='text-transform:uppercase;letter-spacing:1px;font-size:14px;color:#f9cf6c;text-align:center;'>Possible Meanings</div><div style='margin-top:4px;font-size:19px;line-height:1.4;color:#f7f7f7;text-align:center;'><div style='display:flex;flex-direction:column;align-items:center;gap:4px;margin:6px 0;'><span style='font-size:12px;letter-spacing:1px;color:#0f0f0f;background:#f9cf6c;border-radius:999px;padding:4px 10px;display:inline-flex;'>EN</span><span style='font-size:19px;color:#f7f7f7;text-align:center;'>and, as well as, both</span></div><div style='display:flex;flex-direction:column;align-items:center;gap:4px;margin:6px 0;'><span style='font-size:12px;letter-spacing:1px;color:#0f0f0f;background:#f9cf6c;border-radius:999px;padding:4px 10px;display:inline-flex;'>ES</span><span style='font-size:19px;color:#f7f7f7;text-align:center;'>y, as\u00ed como, ambos</span></div></div><div style='width:100%;height:1px;background:rgba(249,207,108,0.25);margin:6px 0;'></div><div style='text-transform:uppercase;letter-spacing:1px;font-size:14px;color:#f9cf6c;text-align:center;'>Grammar Notes</div><div style='margin-top:4px;text-align:center;'><div style='display:flex;flex-direction:column;gap:2px;margin-top:4px;text-align:center;'><div style='display:flex;flex-direction:column;align-items:center;padding:4px 0;'><span style='font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#a0a0a0;'>Part of Speech</span><span style='font-size:18px;font-weight:600;color:#fdfdfd;margin-top:2px;text-align:center;'>Conjunction</span></div><div style='display:flex;flex-direction:column;align-items:center;padding:4px 0;'><span style='font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#a0a0a0;'>Lemma</span><span style='font-size:18px;font-weight:600;color:#fdfdfd;margin-top:2px;text-align:center;'>\u0438</span></div></div></div><div style='width:100%;height:1px;background:rgba(249,207,108,0.25);margin:6px 0;'></div><div style='text-transform:uppercase;letter-spacing:1px;font-size:14px;color:#f9cf6c;text-align:center;'>Usage Examples</div><div style='margin-top:4px;font-size:19px;line-height:1.4;color:#f7f7f7;text-align:center;'><div style='margin:12px 0;line-height:1.6;font-size:18px;text-align:center;'>\u2022 \u041a\u0442\u043e \u044f <b style='color:#ffcc00'>\u0438</b> \u043a\u0442\u043e \u0432\u044b?<div style='color:#a3a3a3;font-size:16px;margin-top:6px;'><i>Who am I, and who are you?</i></div><div style='color:#8a8a8a;font-size:14px;margin-top:4px;'>[Who am I and who are you?]</div></div><div style='margin:12px 0;line-height:1.6;font-size:18px;text-align:center;'>\u2022 \u0412\u0430\u0441-\u0442\u043e \u044f <b style='color:#ffcc00'>\u0438</b> \u0438\u0449\u0443.<div style='color:#a3a3a3;font-size:16px;margin-top:6px;'><i>You&#x27;re the one who I&#x27;ve been looking for.</i></div><div style='color:#8a8a8a;font-size:14px;margin-top:4px;'>[That&#x27;s who I&#x27;m looking for.]</div></div></div>"}, {"word": "\u043d\u0430", "rank": 3, "content": "<div style='display:flex;justify-content:center;align-items:center;gap:16px;'><span style='font-size:48px;'>\u043d\u0430</span><span>\ud83d\udd0a</span></div><div style='text-align:center;color:#a0a0a0;font-size:14px;margin-top:4px;'>Romanization: na | Ipa: n\u0259</div><div style='width:100%;height:1px;background:rgba(249,207,108,0.25);margin:6px 0;'></div><div style='text-transform:uppercase;letter-spacing:1px;font-size:14px;color:#f9cf6c;text-align:center;'>Possible Meanings</div><div style='margin-top:4px;font-size:19px;line-height:1.4;color:#f7f7f7;text-align:center;'><div style='display:flex;flex-direction:column;align-items:center;gap:4px;margin:6px 0;'><span style='font-size:12px;letter-spacing:1px;color:#0f0f0f;background:#f9cf6c;border-radius:999px;padding:4px 10px;display:inline-flex;'>EN</span><span style='font-size:19px;color:#f7f7f7;text-align:center;'>onto, on, nearby</span></div><div style='display:flex;flex-direction:column;align-items:center;gap:4px;margin:6px 0;'><span style='font-size:12px;letter-spacing:1px;color:#0f0f0f;background:#f9cf6c;border-radius:999px;padding:4px 10px;display:inline-flex;'>ES</span><span style='font-size:19px;color:#f7f7f7;text-align:center;'>hacia, sobre, cerca de</span></div></div><div style='width:100%;height:1px;background:rgba(249,207,108,0.25);margin:6px 0;'></div><div style='text-transform:uppercase;letter-spacing:1px;font-size:14px;color:#f9cf6c;text-align:center;'>Grammar Notes</div><div style='margin-top:4px;text-align:center;'><div style='display:flex;flex-direction:column;gap:2px;margin-top:4px;text-align:center;'><div style='display:flex;flex-direction:column;align-items:center;padding:4px 0;'><span style='font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#a0a0a0;'>Part of Speech</span><span style='font-size:18px;font-weight:600;color:#fdfdfd;margin-top:2px;text-align:center;'>Preposition</span></div><div style='display:flex;flex-direction:column;align-items:center;padding:4px 0;'><span style='font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#a0a0a0;'>Lemma</span><span style='font-size:18px;font-weight:600;color:#fdfdfd;margin-top:2px;text-align:center;'>\u043d\u0430</span></div></div></div><div style='width:100%;height:1px;background:rgba(249,207,108,0.25);margin:6px 0;'></div><div style='text-transform:uppercase;letter-spacing:1px;font-size:14px;color:#f9cf6c;text-align:center;'>Usage Examples</div><div style='margin-top:4px;font-size:19px;line-height:1.4;color:#f7f7f7;text-align:center;'><div style='margin:10px 0;display:flex;justify-content:center;'><table style='border-collapse:collapse;background:#1a1a1a;border-radius:8px;overflow:hidden;'><tr><td style='padding:2px 4px;text-align:right;vertical-align:middle;font-size:10px;letter-spacing:0.5px;color:#666;text-transform:uppercase;'>RUSSIAN</td><td style='padding:4px 10px;text-align:center;font-size:17px;color:#f7f7f7;'>\u041e\u043d</td><td style='padding:4px 10px;text-align:center;font-size:17px;color:#f7f7f7;'>\u043c\u0443\u0436</td><td style='padding:4px 10px;text-align:center;font-size:17px;color:#ffcc00;font-weight:bold;'>\u043d\u0430</td><td style='padding:4px 10px;text-align:center;font-size:17px;color:#f7f7f7;'>\u0447\u0430\u0441.</td></tr><tr><td style='padding:2px 4px;text-align:right;vertical-align:middle;font-size:10px;letter-spacing:0.5px;color:#666;text-transform:uppercase;'>LITERALLY</td><td style='padding:4px 10px;text-align:center;color:#a0a0a0;font-size:15px;'>He</td><td style='padding:4px 10px;text-align:center;color:#a0a0a0;font-size:15px;'>man</td><td style='padding:4px 10px;text-align:center;color:#ffcc00;font-weight:bold;font-size:15px;'>on</td><td style='padding:4px 10px;text-align:center;color:#a0a0a0;font-size:15px;'>hour</td></tr><tr><td style='padding:2px 4px;text-align:right;vertical-align:middle;font-size:10px;letter-spacing:0.5px;color:#666;text-transform:uppercase;'>ENGLISH</td><td colspan='4' style='padding:4px 10px;color:#a3a3a3;font-style:italic;text-align:left;font-size:16px;'>He is a husband for an hour.</td></tr></table></div><div style='margin:10px 0;display:flex;justify-content:center;'><table style='border-collapse:collapse;background:#1a1a1a;border-radius:8px;overflow:hidden;'><tr><td style='padding:2px 4px;text-align:right;vertical-align:middle;font-size:10px;letter-spacing:0.5px;color:#666;text-transform:uppercase;'>RUSSIAN</td><td style='padding:4px 10px;text-align:center;font-size:17px;color:#f7f7f7;'>\u041c\u044b</td><td style='padding:4px 10px;text-align:center;font-size:17px;color:#f7f7f7;'>\u0438\u0434\u0451\u043c</td><td style='padding:4px 10px;text-align:center;font-size:17px;color:#ffcc00;font-weight:bold;'>\u043d\u0430</td><td style='padding:4px 10px;text-align:center;font-size:17px;color:#f7f7f7;'>\u044e\u0433.</td></tr><tr><td style='padding:2px 4px;text-align:right;vertical-align:middle;font-size:10px;letter-spacing:0.5px;color:#666;text-transform:uppercase;'>LITERALLY</td><td style='padding:4px 10px;text-align:center;color:#a0a0a0;font-size:15px;'>We</td><td style='padding:4px 10px;text-align:center;color:#a0a0a0;font-size:15px;'>we are going</td><td style='padding:4px 10px;text-align:center;color:#ffcc00;font-weight:bold;font-size:15px;'>on</td><td style='padding:4px 10px;text-align:center;color:#a0a0a0;font-size:15px;'>south</td></tr><tr><td style='padding:2px 4px;text-align:right;vertical-align:middle;font-size:10px;letter-spacing:0.5px;color:#666;text-transform:uppercase;'>ENGLISH</td><td colspan='4' style='padding:4px 10px;color:#a3a3a3;font-style:italic;text-align:left;font-size:16px;'>We&#x27;re going south.</td></tr></table></div></div>"}];
+        let currentIndex = 0;
+
+        function showCard(index) {
+            const card = cards[index];
+
+            document.getElementById('front-word').textContent = card.word;
+            document.getElementById('front-rank').textContent = 'Rank #' + card.rank;
+            document.getElementById('content').innerHTML = card.content;
+
+            document.getElementById('current').textContent = index + 1;
+            document.getElementById('total').textContent = cards.length;
+        }
+
+        function nextCard() {
+            if (currentIndex < cards.length - 1) {
+                currentIndex++;
+                showCard(currentIndex);
+            }
+        }
+
+        function prevCard() {
+            if (currentIndex > 0) {
+                currentIndex--;
+                showCard(currentIndex);
+            }
+        }
+
+        document.addEventListener('keydown', e => {
+            if (e.key === 'ArrowRight') nextCard();
+            if (e.key === 'ArrowLeft') prevCard();
+        });
+
+        showCard(0);
+    </script>
+</body>
+</html>

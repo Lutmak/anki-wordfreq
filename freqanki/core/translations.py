@@ -1,12 +1,15 @@
-"""Batch translation using DeepL API."""
+"""Batch translation using multiple backends."""
 
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
-from freqanki.config import DEEPL_CODES, WIKTIONARY_LANG_NAMES
+from freqanki.config import DEEPL_CODES, WIKTIONARY_LANG_NAMES, BackendType
 from freqanki.core.kaikki import get_glosses_for_word
-from freqanki.utils.console import console
+from freqanki.core.backends import get_backend, TranslationBackend
+from freqanki.languages.translation_hints import get_hints
+from freqanki.utils.console import console, create_progress
 from freqanki.utils.http import RateLimitedClient
 
 # Wikilink pattern for parsing Wiktionary
@@ -176,6 +179,87 @@ def get_english_glosses_batch(
     return glosses
 
 
+def translate_words_with_backend(
+    words: list[str],
+    source_lang: str,
+    target_lang: str,
+    backend_type: BackendType = BackendType.AUTO,
+) -> list[str]:
+    """
+    Translate words using the configured backend.
+
+    This is the main translation function that uses the modular backend system.
+    It automatically loads language-specific hints for LLM backends.
+
+    Args:
+        words: Words to translate
+        source_lang: Source language code (ISO 639-1)
+        target_lang: Target language code
+        backend_type: Which backend to use (AUTO selects best available)
+
+    Returns:
+        List of translations in same order as input words
+    """
+    if not words:
+        return []
+
+    # Get backend
+    backend = get_backend(backend_type)
+    if backend is None:
+        console.print("[red]No translation backend available![/red]")
+        return words  # Return original words as fallback
+
+    console.print(f"[blue]Translating {len(words)} words with {backend.name}...[/blue]")
+
+    # Get language hints for LLM backends
+    hints = get_hints(source_lang)
+
+    # Translate
+    translations = backend.translate_words(
+        words=words,
+        source_lang=source_lang,
+        target_lang=target_lang,
+        hints=hints,
+    )
+
+    return translations
+
+
+def batch_translate_with_backend(
+    texts: list[str],
+    source_lang: str,
+    target_lang: str,
+    backend_type: BackendType = BackendType.AUTO,
+) -> list[str]:
+    """
+    Translate texts in batch using the configured backend.
+
+    Args:
+        texts: Texts to translate (sentences, glosses, etc.)
+        source_lang: Source language code
+        target_lang: Target language code
+        backend_type: Which backend to use
+
+    Returns:
+        List of translations in same order as input
+    """
+    if not texts:
+        return []
+
+    backend = get_backend(backend_type)
+    if backend is None:
+        console.print("[red]No translation backend available![/red]")
+        return texts
+
+    console.print(f"[blue]Batch translating {len(texts)} texts with {backend.name}...[/blue]")
+
+    return backend.translate_batch(
+        texts=texts,
+        source_lang=source_lang,
+        target_lang=target_lang,
+    )
+
+
 def batch_translate_deepl(
     texts: list[str],
     source_lang: str,
@@ -212,36 +296,35 @@ def batch_translate_deepl(
     console.print(f"[blue]Translating {len(texts)} texts to {target_lang}...[/blue]")
 
     try:
-        for batch_start in range(0, len(texts), batch_size):
-            batch_end = min(batch_start + batch_size, len(texts))
-            batch = texts[batch_start:batch_end]
+        with create_progress() as progress:
+            task = progress.add_task("Translating glosses", total=len(texts))
+            for batch_start in range(0, len(texts), batch_size):
+                batch_end = min(batch_start + batch_size, len(texts))
+                batch = texts[batch_start:batch_end]
 
-            payload = {
-                "text": batch,
-                "source_lang": source_deepl,
-                "target_lang": target_deepl,
-            }
-            if context:
-                payload["context"] = context
+                payload = {
+                    "text": batch,
+                    "source_lang": source_deepl,
+                    "target_lang": target_deepl,
+                }
+                if context:
+                    payload["context"] = context
 
-            response = requests.post(
-                endpoint,
-                headers={"Authorization": f"DeepL-Auth-Key {api_key}"},
-                json=payload,
-                timeout=60,
-            )
-            response.raise_for_status()
+                response = requests.post(
+                    endpoint,
+                    headers={"Authorization": f"DeepL-Auth-Key {api_key}"},
+                    json=payload,
+                    timeout=60,
+                )
+                response.raise_for_status()
 
-            translations = [t["text"] for t in response.json().get("translations", [])]
+                translations = [t["text"] for t in response.json().get("translations", [])]
 
-            # Store results
-            for i, trans in enumerate(translations):
-                results[batch_start + i] = trans
+                # Store results
+                for i, trans in enumerate(translations):
+                    results[batch_start + i] = trans
 
-            console.print(
-                f"  Translated batch {batch_start + 1}-{batch_end}/{len(texts)}",
-                end="\r",
-            )
+                progress.update(task, advance=len(batch))
 
         console.print(f"[green]  Translated {len(texts)} texts successfully[/green]")
 
@@ -320,17 +403,15 @@ def _has_untranslated_words(
     """
     Check if any source word was returned unchanged (untranslated).
 
-    This detects cases where DeepL doesn't recognize a word and just
-    returns it as-is or with simple transliteration (e.g., "ко" -> "ko").
-
-    Skips numbers since they typically stay the same across languages.
+    This is a simple check that just compares source and target.
+    If they're identical, the word probably wasn't translated.
 
     Args:
         source_words: Original words in source language
         translations: Translated words
 
     Returns:
-        True if any word appears untranslated
+        True if any word appears untranslated (same as source)
     """
     for src, trans in zip(source_words, translations):
         src_clean = src.lower().strip()
@@ -340,55 +421,9 @@ def _has_untranslated_words(
         if src_clean.replace(" ", "").isdigit():
             continue
 
-        # Check if translation is same as source
+        # Check if translation is identical to source (untranslated)
         if src_clean == trans_clean:
             return True
-
-        # Check for Cyrillic -> Latin transliteration (same letters, just converted)
-        # e.g., "ко" -> "ko", "бе" -> "be"
-        # Only for short words (1-2 chars) where transliteration is more likely
-        if len(src_clean) <= 2 and len(trans_clean) <= 2:
-            has_cyrillic = any("\u0400" <= c <= "\u04ff" for c in src)
-            is_latin = all(c.isascii() for c in trans_clean)
-            # If source is Cyrillic, result is Latin, and they "sound" similar
-            # Simple check: if transliterated version matches
-            if has_cyrillic and is_latin:
-                # Common Cyrillic -> Latin mappings for short words
-                translit_map = {
-                    "а": "a",
-                    "б": "b",
-                    "в": "v",
-                    "г": "g",
-                    "д": "d",
-                    "е": "e",
-                    "ж": "zh",
-                    "з": "z",
-                    "и": "i",
-                    "й": "y",
-                    "к": "k",
-                    "л": "l",
-                    "м": "m",
-                    "н": "n",
-                    "о": "o",
-                    "п": "p",
-                    "р": "r",
-                    "с": "s",
-                    "т": "t",
-                    "у": "u",
-                    "ф": "f",
-                    "х": "kh",
-                    "ц": "ts",
-                    "ч": "ch",
-                    "ш": "sh",
-                    "щ": "sch",
-                    "ы": "y",
-                    "э": "e",
-                    "ю": "yu",
-                    "я": "ya",
-                }
-                transliterated = "".join(translit_map.get(c, c) for c in src_clean)
-                if transliterated == trans_clean:
-                    return True
 
     return False
 
@@ -400,13 +435,14 @@ def translate_glosses_to_targets(
     kaikki_entries: dict[str, list[dict]],
     api_key: str,
     endpoint: str = "https://api-free.deepl.com/v2/translate",
+    backend_type: BackendType = BackendType.AUTO,
 ) -> dict[str, list[str]]:
     """
     Translate word glosses to multiple target languages.
 
     Efficient pipeline:
     1. Get English glosses for all words (Wiktionary + Kaikki)
-    2. If target is English, return glosses directly
+    2. If target is English, use backend for better word translations
     3. Otherwise, batch translate all glosses to target language
 
     Args:
@@ -414,8 +450,9 @@ def translate_glosses_to_targets(
         source_lang: Source language code
         target_langs: Target language codes
         kaikki_entries: Pre-loaded Kaikki entries
-        api_key: DeepL API key
+        api_key: DeepL API key (for AUTO mode fallback)
         endpoint: DeepL API endpoint
+        backend_type: Translation backend to use
 
     Returns:
         Dict mapping target language to list of translations
@@ -426,14 +463,30 @@ def translate_glosses_to_targets(
     # Step 2: Translate to each target language
     results: dict[str, list[str]] = {}
 
+    # Determine if we should use DeepL (only in AUTO mode with valid key)
+    use_deepl = (backend_type == BackendType.AUTO and api_key) or backend_type == BackendType.DEEPL
+
     for target in target_langs:
         if target.lower() == "en":
-            results[target] = en_glosses
-        else:
-            if not api_key:
-                console.print(f"[yellow]No DeepL API key, using English for {target}[/yellow]")
-                results[target] = en_glosses
+            # For English target, use backend for better word-level translations
+            # This improves translations for function words, particles, etc.
+            backend = get_backend(backend_type)
+            if backend:
+                improved = translate_words_with_backend(words, source_lang, target, backend_type)
+                # Merge: use improved where gloss is same as original word (failed lookup)
+                merged = []
+                for gloss, word, improved_trans in zip(en_glosses, words, improved):
+                    # If gloss lookup failed (returned original word), use backend translation
+                    if gloss.strip().lower() == word.strip().lower():
+                        merged.append(improved_trans)
+                    else:
+                        merged.append(gloss)
+                results[target] = merged
             else:
+                results[target] = en_glosses
+        else:
+            # For non-English targets, translate the glosses
+            if use_deepl and api_key:
                 translated = batch_translate_deepl(
                     en_glosses,
                     "en",
@@ -441,6 +494,10 @@ def translate_glosses_to_targets(
                     api_key,
                     endpoint,
                 )
+                results[target] = translated
+            else:
+                # Use backend for gloss translation
+                translated = batch_translate_with_backend(en_glosses, "en", target, backend_type)
                 results[target] = translated
 
     return results
@@ -547,6 +604,7 @@ def translate_words_literal(
     api_key: str,
     endpoint: str = "https://api-free.deepl.com/v2/translate",
     min_words: int = 3,
+    batch_size: int = 50,
 ) -> tuple[dict[str, list[tuple[str, str]]], set[str]]:
     """
     Get word-by-word literal translations for sentences.
@@ -563,6 +621,9 @@ def translate_words_literal(
     consistent results (e.g., "важно." displays with period but translates
     as "важно" to get "importantly" not "importantly.").
 
+    PERFORMANCE: All words from all sentences are batched together and sent
+    in large batches to minimize API calls (e.g., 50 words per request).
+
     Args:
         unique_sentences: Unique source sentences to translate word-by-word
         source_lang: Source language code
@@ -570,6 +631,7 @@ def translate_words_literal(
         api_key: DeepL API key
         endpoint: DeepL API endpoint
         min_words: Minimum number of final words/groups required (default: 3)
+        batch_size: Words per API request (default: 50)
 
     Returns:
         Tuple of:
@@ -601,18 +663,63 @@ def translate_words_literal(
     if not sentence_word_groups:
         return {}, set()
 
-    # Translate each sentence's words
+    # Collect ALL unique words across all sentences for batch translation
+    all_words: list[str] = []
+    word_to_index: dict[str, int] = {}  # Map word to its index in all_words
+
+    for groups in sentence_word_groups.values():
+        for _, clean in groups:
+            if clean not in word_to_index:
+                word_to_index[clean] = len(all_words)
+                all_words.append(clean)
+
+    console.print(f"  Translating {len(all_words)} unique words in batches of {batch_size}...")
+
+    # Translate all words in parallel batches
+    all_translations: list[str] = [""] * len(all_words)
+
+    # Create batch ranges
+    batch_ranges = [
+        (batch_start, min(batch_start + batch_size, len(all_words)))
+        for batch_start in range(0, len(all_words), batch_size)
+    ]
+
+    def translate_batch(batch_range: tuple[int, int]) -> tuple[int, int, list[str]]:
+        """Translate a single batch and return (start, end, translations)."""
+        start, end = batch_range
+        batch_words = all_words[start:end]
+        translations = _translate_word_batch(
+            batch_words, source_lang, target_lang, api_key, endpoint
+        )
+        return start, end, translations
+
+    # Use ThreadPoolExecutor for parallel API calls (I/O bound)
+    # Limit workers to avoid overwhelming the API
+    max_workers = min(4, len(batch_ranges))
+    completed = 0
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(translate_batch, br): br for br in batch_ranges}
+
+        for future in as_completed(futures):
+            start, end, translations = future.result()
+            for i, trans in enumerate(translations):
+                all_translations[start + i] = trans
+            completed += end - start
+            console.print(
+                f"  Translated {completed}/{len(all_words)} words",
+                end="\r",
+            )
+
+    console.print(f"  Translated {len(all_words)} unique words                    ")
+
+    # Build results using the pre-translated words
     result: dict[str, list[tuple[str, str]]] = {}
     failed_sentences: set[str] = set()
-    total_words = 0
 
-    for i, (sentence, groups) in enumerate(sentence_word_groups.items()):
+    for sentence, groups in sentence_word_groups.items():
         clean_words = [clean for _, clean in groups]
-
-        # Translate words using next-gen models
-        translations = _translate_word_batch(
-            clean_words, source_lang, target_lang, api_key, endpoint
-        )
+        translations = [all_translations[word_to_index[clean]] for clean in clean_words]
 
         # Check if any words failed to translate
         if _has_untranslated_words(clean_words, translations):
@@ -625,16 +732,123 @@ def translate_words_literal(
             for j, (display, clean) in enumerate(groups)
         ]
 
-        total_words += len(clean_words)
-
+    if failed_sentences:
         console.print(
-            f"  Translated sentence {i + 1}/{len(sentence_word_groups)}",
-            end="\r",
+            f"[yellow]  {len(failed_sentences)} sentences had untranslated words[/yellow]"
         )
+    console.print(
+        f"[green]  Translated {len(all_words)} unique words across {len(result)} sentences[/green]"
+    )
+    return result, failed_sentences
+
+
+def translate_words_literal_with_backend(
+    unique_sentences: list[str],
+    source_lang: str,
+    target_lang: str,
+    backend_type: BackendType = BackendType.AUTO,
+    min_words: int = 3,
+    word_hints: dict[str, list[str]] | None = None,
+) -> tuple[dict[str, list[tuple[str, str]]], set[str]]:
+    """
+    Get word-by-word literal translations using the backend system.
+
+    Same as translate_words_literal but uses the modular backend system
+    instead of requiring DeepL API key.
+
+    Args:
+        unique_sentences: Unique source sentences to translate word-by-word
+        source_lang: Source language code
+        target_lang: Target language code
+        backend_type: Translation backend to use
+        min_words: Minimum number of final words/groups required (default: 3)
+        word_hints: Optional dict mapping word to list of meanings for context
+
+    Returns:
+        Tuple of:
+        - Dict mapping sentence to list of (display_word, translation) tuples
+        - Set of sentences that failed (had untranslated words)
+    """
+    if not unique_sentences:
+        return {}, set()
+
+    backend = get_backend(backend_type)
+    if backend is None:
+        console.print("[yellow]No backend available for literal translations[/yellow]")
+        return {}, set()
+
+    console.print(
+        f"[blue]Getting word-by-word translations for {len(unique_sentences)} sentences "
+        f"with {backend.name}...[/blue]"
+    )
+
+    # Map sentence -> list of (display_group, clean_group)
+    sentence_word_groups: dict[str, list[tuple[str, str]]] = {}
+
+    for sentence in unique_sentences:
+        # Tokenize preserving punctuation
+        words_with_punct = _tokenize_with_punctuation(sentence)
+        # Merge single-letter particles
+        # merged = _merge_single_letter_particles(words_with_punct)
+        merged = words_with_punct
+
+        # Filter out sentences with fewer than min_words
+        if len(merged) < min_words:
+            continue
+
+        sentence_word_groups[sentence] = merged
+
+    if not sentence_word_groups:
+        return {}, set()
+
+    # Collect ALL unique words across all sentences
+    all_words: list[str] = []
+    word_to_index: dict[str, int] = {}
+
+    for groups in sentence_word_groups.values():
+        for _, clean in groups:
+            if clean not in word_to_index:
+                word_to_index[clean] = len(all_words)
+                all_words.append(clean)
+
+    console.print(f"  Translating {len(all_words)} unique words...")
+
+    # Get hints for LLM backends
+    hints = get_hints(source_lang)
+
+    # Translate all words using backend
+    all_translations = backend.translate_words(
+        words=all_words,
+        source_lang=source_lang,
+        target_lang=target_lang,
+        hints=hints,
+        word_hints=word_hints,
+    )
+
+    console.print(f"  Translated {len(all_words)} unique words")
+
+    # Build results using the translated words
+    result: dict[str, list[tuple[str, str]]] = {}
+    failed_sentences: set[str] = set()
+
+    for sentence, groups in sentence_word_groups.items():
+        clean_words = [clean for _, clean in groups]
+        translations = [all_translations[word_to_index[clean]] for clean in clean_words]
+
+        # Check if any words failed to translate
+        if _has_untranslated_words(clean_words, translations):
+            failed_sentences.add(sentence)
+            continue
+
+        # Build result with display words paired with translations
+        result[sentence] = [
+            (display, translations[j] if j < len(translations) else clean)
+            for j, (display, clean) in enumerate(groups)
+        ]
 
     if failed_sentences:
         console.print(
             f"[yellow]  {len(failed_sentences)} sentences had untranslated words[/yellow]"
         )
-    console.print(f"[green]  Translated {total_words} words across {len(result)} sentences[/green]")
+    console.print(f"[green]  Word-by-word translations for {len(result)} sentences[/green]")
     return result, failed_sentences

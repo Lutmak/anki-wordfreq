@@ -2,7 +2,17 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from enum import Enum
 import os
+
+
+class BackendType(Enum):
+    """Translation backend types."""
+
+    AUTO = "auto"  # Auto-select best available
+    DEEPL = "deepl"  # DeepL API (best quality, requires API key)
+    QWEN = "qwen"  # Qwen3 via Ollama (local LLM, context-aware)
+    ARGOS = "argos"  # Argos Translate (fast, offline)
 
 
 @dataclass
@@ -46,6 +56,9 @@ class GenerationConfig:
 class APIConfig:
     """Configuration for external API services."""
 
+    # Translation backend selection
+    translation_backend: BackendType = BackendType.AUTO
+
     # DeepL API key (from environment or config)
     deepl_api_key: str = field(default_factory=lambda: os.getenv("DEEPL_API_KEY", ""))
 
@@ -54,6 +67,12 @@ class APIConfig:
 
     # Maximum texts per DeepL batch request
     deepl_batch_size: int = 50
+
+    # Ollama endpoint for Qwen backend
+    ollama_endpoint: str = "http://localhost:11434/api/chat"
+
+    # Ollama model name
+    ollama_model: str = "qwen3:4b-instruct"
 
 
 @dataclass
@@ -107,6 +126,7 @@ class FreqAnkiConfig:
         output: Path | None,
         preview: bool,
         migrate_from: Path | None = None,
+        backend: BackendType = BackendType.AUTO,
     ) -> "FreqAnkiConfig":
         """Create config from CLI arguments."""
         return cls(
@@ -119,7 +139,8 @@ class FreqAnkiConfig:
                 output_path=output,
                 show_preview=preview,
                 migrate_from=migrate_from,
-            )
+            ),
+            api=APIConfig(translation_backend=backend),
         )
 
 

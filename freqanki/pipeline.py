@@ -1,6 +1,6 @@
 """Main pipeline orchestration for FreqAnki deck generation."""
 
-from freqanki.config import FreqAnkiConfig
+from freqanki.config import FreqAnkiConfig, BackendType
 from freqanki.core.audio import get_audio_for_words
 from freqanki.core.deck import WordData, create_deck
 from freqanki.core.examples import collect_all_example_sentences
@@ -15,6 +15,8 @@ from freqanki.core.translations import (
     translate_glosses_to_targets,
     translate_sentences_batch,
     translate_words_literal,
+    translate_words_literal_with_backend,
+    batch_translate_with_backend,
 )
 from freqanki.core.words import get_frequency_words
 from freqanki.languages import get_language_module
@@ -86,6 +88,7 @@ def generate_deck(config: FreqAnkiConfig) -> str | None:
         kaikki_entries,
         api.deepl_api_key,
         api.deepl_endpoint,
+        api.translation_backend,
     )
 
     # Phase 4: Example Collection
@@ -93,65 +96,53 @@ def generate_deck(config: FreqAnkiConfig) -> str | None:
     examples_by_word: dict[str, list[tuple[str, str, str]]] = {}
     literal_translations: dict[str, str] = {}
     word_translations: dict[str, list[tuple[str, str]]] = {}
-    backup_sentences: dict[str, list[tuple[str, str, str]]] = {}
 
     if gen.num_examples > 0 and gen.target_langs:
-        examples_by_word, unique_sentences, backup_sentences = collect_all_example_sentences(
+        # Collect examples (simple: just get num_examples per word, no backups needed)
+        examples_by_word, unique_sentences, _ = collect_all_example_sentences(
             words,
             gen.source_lang,
             gen.target_langs[0],
             gen.num_examples,
         )
 
-        # Word-by-word translations if enabled and API key available
-        if gen.include_literal and unique_sentences and api.deepl_api_key:
+        # Word-by-word translations if enabled
+        if gen.include_literal and unique_sentences:
             console.print("[blue]Getting word-by-word translations...[/blue]")
-            word_translations, failed_sentences = translate_words_literal(
-                unique_sentences,
-                gen.source_lang,
-                gen.target_langs[0],
-                api.deepl_api_key,
-                api.deepl_endpoint,
-            )
 
-            # Retry failed sentences with backup candidates
-            if failed_sentences:
-                console.print(
-                    f"[yellow]{len(failed_sentences)} sentences had untranslated words, trying backups...[/yellow]"
+            # Build word hints from Kaikki glosses
+            word_hints = {}
+            for word, entries in kaikki_entries.items():
+                glosses = []
+                for entry in entries:
+                    glosses.extend(entry.get("glosses", []))
+                word_hints[word] = glosses[:3]  # Limit to 3 meanings
+
+            # Use DeepL only if AUTO mode and API key available, otherwise use backend
+            use_deepl = (
+                api.translation_backend == BackendType.AUTO and api.deepl_api_key
+            ) or api.translation_backend == BackendType.DEEPL
+
+            if use_deepl and api.deepl_api_key:
+                word_translations, _ = translate_words_literal(
+                    unique_sentences,
+                    gen.source_lang,
+                    gen.target_langs[0],
+                    api.deepl_api_key,
+                    api.deepl_endpoint,
+                )
+            else:
+                # Use backend system (Qwen, Argos, etc.)
+                word_translations, _ = translate_words_literal_with_backend(
+                    unique_sentences,
+                    gen.source_lang,
+                    gen.target_langs[0],
+                    api.translation_backend,
+                    word_hints=word_hints,
                 )
 
-                # Find which words need replacement sentences
-                retry_sentences: list[str] = []
-                for word, word_examples in examples_by_word.items():
-                    for i, (source, target, matched) in enumerate(word_examples):
-                        if source in failed_sentences:
-                            # Try to swap with a backup
-                            if backup_sentences.get(word):
-                                backup = backup_sentences[word].pop(0)
-                                examples_by_word[word][i] = backup
-                                if backup[0] not in word_translations:
-                                    retry_sentences.append(backup[0])
-
-                # Translate retry sentences
-                if retry_sentences:
-                    console.print(
-                        f"[blue]Translating {len(retry_sentences)} replacement sentences...[/blue]"
-                    )
-                    retry_translations, retry_failed = translate_words_literal(
-                        retry_sentences,
-                        gen.source_lang,
-                        gen.target_langs[0],
-                        api.deepl_api_key,
-                        api.deepl_endpoint,
-                    )
-                    word_translations.update(retry_translations)
-                    if retry_failed:
-                        console.print(
-                            f"[yellow]  {len(retry_failed)} replacement sentences also failed[/yellow]"
-                        )
-
             # Fallback: sentence-level translations for sentences not covered
-            # (e.g., those with fewer than min_words)
+            # (e.g., those with fewer than min_words or failed word-by-word)
             all_current_sentences = set()
             for word_examples in examples_by_word.values():
                 for source, _, _ in word_examples:
@@ -164,13 +155,23 @@ def generate_deck(config: FreqAnkiConfig) -> str | None:
                 console.print(
                     f"[blue]Getting fallback translations for {len(sentences_needing_fallback)} shorter sentences...[/blue]"
                 )
-                literal_translations = translate_sentences_batch(
-                    sentences_needing_fallback,
-                    gen.source_lang,
-                    gen.target_langs[0],
-                    api.deepl_api_key,
-                    api.deepl_endpoint,
-                )
+                if use_deepl and api.deepl_api_key:
+                    literal_translations = translate_sentences_batch(
+                        sentences_needing_fallback,
+                        gen.source_lang,
+                        gen.target_langs[0],
+                        api.deepl_api_key,
+                        api.deepl_endpoint,
+                    )
+                else:
+                    # Use backend for fallback translations
+                    fallback_texts = batch_translate_with_backend(
+                        sentences_needing_fallback,
+                        gen.source_lang,
+                        gen.target_langs[0],
+                        api.translation_backend,
+                    )
+                    literal_translations = dict(zip(sentences_needing_fallback, fallback_texts))
 
     # Phase 5: Audio Retrieval
     print_header("Phase 5: Getting Audio")
